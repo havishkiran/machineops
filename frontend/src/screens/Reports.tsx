@@ -94,7 +94,7 @@ export default function Reports() {
     [tickets, cutoff]
   );
   const filteredWOs = useMemo(
-    () => workOrders.filter(w => new Date(w.createdAt ?? w.updatedAt ?? 0) >= cutoff),
+    () => workOrders.filter(w => new Date(w.createdAt) >= cutoff),
     [workOrders, cutoff]
   );
 
