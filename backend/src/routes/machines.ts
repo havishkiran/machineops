@@ -86,4 +86,32 @@ router.delete('/:id', async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
+// POST /api/machines/:id/photos  — add a photo by URL
+router.post('/:id/photos', async (req: Request, res: Response) => {
+  const { url, isPrimary } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+  // If setting as primary, unset existing primary
+  if (isPrimary) {
+    await prisma.machinePhoto.updateMany({ where: { machineId: req.params.id, isPrimary: true }, data: { isPrimary: false } });
+  }
+  const photo = await prisma.machinePhoto.create({
+    data: { machineId: req.params.id, url, isPrimary: !!isPrimary },
+  });
+  const machine = await prisma.machine.findUnique({
+    where: { id: req.params.id },
+    include: { photos: { orderBy: { isPrimary: 'desc' } }, _count: { select: { tickets: true } } },
+  });
+  res.status(201).json(machine);
+});
+
+// DELETE /api/machines/:id/photos/:photoId
+router.delete('/:id/photos/:photoId', async (req: Request, res: Response) => {
+  await prisma.machinePhoto.delete({ where: { id: req.params.photoId } });
+  const machine = await prisma.machine.findUnique({
+    where: { id: req.params.id },
+    include: { photos: { orderBy: { isPrimary: 'desc' } }, _count: { select: { tickets: true } } },
+  });
+  res.json(machine);
+});
+
 export default router;

@@ -294,23 +294,41 @@ export function MachineList() {
 
 /* ─── Machine Detail ─────────────────────────────────────────────────────── */
 export function MachineDetail({ id }: { id: string }) {
-  const { nav, tickets, parts, machines, units } = useStore();
+  const { nav, tickets, parts, machines, units, addMachinePhoto, deleteMachinePhoto } = useStore();
   const m = machines.find(mc => mc.id === id) || machines[0];
   const unit = units.find(u => u.id === m?.unitId);
   const [tab, setTab] = useState('overview');
   const [activePhoto, setActivePhoto] = useState(0);
   const [showEdit, setShowEdit] = useState(false);
   const [machine, setMachine] = useState(m);
+  const [addingPhotoUrl, setAddingPhotoUrl] = useState('');
+  const [showAddPhoto, setShowAddPhoto] = useState(false);
 
-  // Sync if store updates
-  useEffect(() => { setMachine(machines.find(mc => mc.id === id) || m); }, [machines, id]);
+  // Sync if store updates (including photo changes)
+  useEffect(() => {
+    const updated = machines.find(mc => mc.id === id) || m;
+    setMachine(updated);
+    setActivePhoto(i => Math.min(i, Math.max((updated?.photos?.length ?? 1) - 1, 0)));
+  }, [machines, id]);
 
   if (!machine) return <div className="content-pad"><p>Machine not found.</p></div>;
 
   const mtickets = tickets.filter(t => t.machineId === machine.id);
   const mparts = parts.filter(p => p.machineId === machine.id);
   const openCount = mtickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
-  const strip = [machine.photos?.[0]?.url ?? null, '/assets/m/08-cap.jpg', '/assets/m/09-cap.jpg', null];
+  const photos = machine.photos ?? [];
+
+  const handleDeletePhoto = async (photoId: string, idx: number) => {
+    await deleteMachinePhoto(machine.id, photoId);
+    if (activePhoto >= idx && activePhoto > 0) setActivePhoto(activePhoto - 1);
+  };
+
+  const handleAddPhoto = async () => {
+    if (!addingPhotoUrl.trim()) return;
+    await addMachinePhoto(machine.id, addingPhotoUrl.trim(), photos.length === 0);
+    setAddingPhotoUrl('');
+    setShowAddPhoto(false);
+  };
 
   const tabs = [
     { k: 'overview', l: 'Overview' },
@@ -333,16 +351,43 @@ export function MachineDetail({ id }: { id: string }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.5fr) minmax(0,1fr)', gap: 20, alignItems: 'start' }} className="md-detail-grid">
         <div>
-          <Photo src={strip[activePhoto]} kind="machine" radius={12} style={{ height: 240 }} />
+          <Photo src={photos[activePhoto]?.url ?? null} kind="machine" radius={12} style={{ height: 240 }} />
           <div style={{ display: 'flex', gap: 8, marginTop: 10, overflowX: 'auto' }} className="no-scrollbar">
-            {strip.map((p, i) => (
-              <button key={i} onClick={() => setActivePhoto(i)} style={{ flex: '0 0 80px' }}>
-                <Photo src={p} kind="machine" radius={8} style={{ width: 80, height: 80, border: i === activePhoto ? '2px solid #1B4FD8' : '2px solid transparent' }} />
-              </button>
+            {photos.map((p, i) => (
+              <div key={p.id} style={{ position: 'relative', flex: '0 0 80px' }}>
+                <button onClick={() => setActivePhoto(i)} style={{ display: 'block', width: 80 }}>
+                  <Photo src={p.url} kind="machine" radius={8} style={{ width: 80, height: 80, border: i === activePhoto ? '2px solid #1B4FD8' : '2px solid transparent' }} />
+                </button>
+                <button
+                  onClick={() => handleDeletePhoto(p.id, i)}
+                  title="Remove photo"
+                  style={{ position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 99, background: 'rgba(15,23,42,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', zIndex: 2 }}>
+                  <Icons.close size={11} />
+                </button>
+              </div>
             ))}
-            <div style={{ flex: '0 0 80px', height: 80, border: '2px dashed #E2E8F0', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, color: '#94A3B8', cursor: 'pointer' }}>
-              <Icons.camera size={20} /><span style={{ fontSize: 10 }}>Add</span>
-            </div>
+            {/* Add photo */}
+            {!showAddPhoto ? (
+              <button onClick={() => setShowAddPhoto(true)} style={{ flex: '0 0 80px', height: 80, border: '2px dashed #E2E8F0', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, color: '#94A3B8', cursor: 'pointer' }}>
+                <Icons.camera size={20} /><span style={{ fontSize: 10 }}>Add</span>
+              </button>
+            ) : (
+              <div style={{ flex: '0 0 220px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <input
+                  className="input"
+                  style={{ fontSize: 12, padding: '5px 8px' }}
+                  placeholder="Paste image URL…"
+                  value={addingPhotoUrl}
+                  onChange={e => setAddingPhotoUrl(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleAddPhoto(); if (e.key === 'Escape') { setShowAddPhoto(false); setAddingPhotoUrl(''); } }}
+                  autoFocus
+                />
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <Btn size="sm" onClick={handleAddPhoto} disabled={!addingPhotoUrl.trim()}>Add</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => { setShowAddPhoto(false); setAddingPhotoUrl(''); }}>Cancel</Btn>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="card card-pad">

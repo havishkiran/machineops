@@ -68,6 +68,8 @@ interface StoreState {
   createMachine: (data: Partial<Machine>) => Promise<Machine>;
   updateMachine: (id: string, data: Partial<Machine>) => Promise<Machine>;
   deleteMachine: (id: string) => Promise<void>;
+  addMachinePhoto: (id: string, url: string, isPrimary?: boolean) => Promise<Machine>;
+  deleteMachinePhoto: (id: string, photoId: string) => Promise<Machine>;
 
   // Custom fields
   loadCustomFields: () => Promise<void>;
@@ -283,6 +285,18 @@ export const useStore = create<StoreState>((set, get) => ({
     await api.machines.delete(id);
     set(s => ({ machines: s.machines.filter(m => m.id !== id) }));
     get().toast('Machine deleted');
+  },
+
+  addMachinePhoto: async (id, url, isPrimary) => {
+    const machine = await api.machines.addPhoto(id, url, isPrimary);
+    set(s => ({ machines: s.machines.map(m => m.id === id ? machine : m) }));
+    return machine;
+  },
+  deleteMachinePhoto: async (id, photoId) => {
+    const machine = await api.machines.deletePhoto(id, photoId);
+    set(s => ({ machines: s.machines.map(m => m.id === id ? machine : m) }));
+    get().toast('Photo removed');
+    return machine;
   },
 
   // Custom fields
