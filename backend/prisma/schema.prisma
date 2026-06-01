@@ -1,0 +1,269 @@
+// MachineOps — Prisma schema
+// Note: SQLite used for local dev (no native enum support — enum values stored as String).
+// To switch to PostgreSQL for production: change provider to "postgresql" and set DATABASE_URL.
+//
+// ─── Allowed string values (enforced in app/API layer) ──────────────────────
+// Machine.status:          WORKING | CRITICAL | WARNING | IDLE | INACTIVE
+// Ticket.severity:         CRITICAL | HIGH | MEDIUM | LOW
+// Ticket.status:           OPEN | ACKNOWLEDGED | IN_PROGRESS | RESOLVED | CLOSED
+// Part.status:             OK | LOW_STOCK | OUT
+// PartTransaction.type:    ADD | CONSUME | ADJUST
+// PMTask.state:            OVERDUE | DUE | UPCOMING | COMPLETED
+// WorkOrder.priority:      LOW | MEDIUM | HIGH | CRITICAL
+// WorkOrder.status:        OPEN | IN_PROGRESS | COMPLETED | CANCELLED
+// User.role:               Super Admin | Floor Supervisor | Shift Supervisor | Senior Technician | Technician
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  unitCode  String
+  whatsapp  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  machines  Machine[]
+  units     Unit[]
+}
+
+model Unit {
+  id       String       @id
+  name     String
+  code     String
+  unitNo   String?
+  orgId    String
+  org      Organization @relation(fields: [orgId], references: [id])
+  machines Machine[]
+}
+
+model User {
+  id               String            @id @default(cuid())
+  name             String
+  email            String            @unique
+  passwordHash     String
+  role             String            // Super Admin | Floor Supervisor | Shift Supervisor | Senior Technician | Technician
+  phone            String?
+  active           Boolean           @default(true)
+  orgId            String
+  org              Organization      @relation(fields: [orgId], references: [id])
+  raisedTickets    Ticket[]          @relation("RaisedTickets")
+  assignedTickets  Ticket[]          @relation("AssignedTickets")
+  pmTasks          PMTask[]
+  workOrders       WorkOrder[]
+  workOrderLabor   WorkOrderLabor[]
+  ticketComments   TicketComment[]
+  partTransactions PartTransaction[]
+}
+
+model Machine {
+  id           String         @id @default(cuid())
+  name         String
+  code         String         @unique
+  unitId       String
+  unit         Unit?          @relation(fields: [unitId], references: [id])
+  section      String
+  status       String         @default("WORKING")  // WORKING|CRITICAL|WARNING|IDLE|INACTIVE
+  manufacturer String?
+  model        String?
+  year         String?
+  lastPM       String?
+  nextPM       String?
+  uptime       Float          @default(100)
+  orgId        String
+  org          Organization   @relation(fields: [orgId], references: [id])
+  photos       MachinePhoto[]
+  tickets      Ticket[]
+  parts        Part[]
+  pmTasks      PMTask[]
+  workOrders   WorkOrder[]
+}
+
+model MachinePhoto {
+  id        String   @id @default(cuid())
+  machineId String
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  url       String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Ticket {
+  id           String           @id @default(cuid())
+  ticketNum    String           @unique  // e.g. TKT-2025-0042
+  machineId    String
+  machine      Machine          @relation(fields: [machineId], references: [id])
+  severity     String           // CRITICAL|HIGH|MEDIUM|LOW
+  status       String           @default("OPEN")  // OPEN|ACKNOWLEDGED|IN_PROGRESS|RESOLVED|CLOSED
+  type         String           // Breakdown|Repair needed|Inspection|Development
+  title        String
+  description  String
+  raisedById   String
+  raisedBy     User             @relation("RaisedTickets", fields: [raisedById], references: [id])
+  assignedToId String?
+  assignedTo   User?            @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  downtime     String?
+  raisedAt     DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  timeline     TicketTimeline[]
+  comments     TicketComment[]
+  workOrders   WorkOrder[]
+}
+
+model TicketTimeline {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  time      String
+  kind      String   // crit|high|warn|info|ok|neut
+  icon      String   // alert|whatsapp|check|wrench|checkcircle|user
+  text      String
+  partName  String?
+  partQty   Int?
+  downtime  String?
+  createdAt DateTime @default(now())
+}
+
+model TicketComment {
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  text      String
+  createdAt DateTime @default(now())
+}
+
+model Part {
+  id           String            @id @default(cuid())
+  name         String
+  machineId    String
+  machine      Machine           @relation(fields: [machineId], references: [id])
+  spec         String?
+  qty          Int               @default(0)
+  minQty       Int               @default(0)
+  status       String            @default("OK")  // OK|LOW_STOCK|OUT
+  photoUrl     String?
+  supplier     String?
+  cost         Float             @default(0)
+  criticality  String            @default("Medium")  // Critical|High|Medium|Low
+  orgId          String
+  transactions   PartTransaction[]
+  workOrderParts WorkOrderPart[]
+}
+
+model PartTransaction {
+  id        String   @id @default(cuid())
+  partId    String
+  part      Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
+  type      String   // ADD|CONSUME|ADJUST
+  qty       Int
+  notes     String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model PMTask {
+  id               String    @id @default(cuid())
+  machineId        String
+  machine          Machine   @relation(fields: [machineId], references: [id])
+  task             String
+  section          String
+  assigneeId       String
+  assignee         User      @relation(fields: [assigneeId], references: [id])
+  dueDate          String
+  nextDueDate      DateTime? // ISO date — source of truth for recurrence & notifications
+  frequency        String    @default("NONE")  // NONE|WEEKLY|FORTNIGHTLY|MONTHLY|QUARTERLY|YEARLY
+  notifyDaysBefore Int       @default(3)
+  state            String    @default("UPCOMING")  // OVERDUE|DUE|UPCOMING|COMPLETED
+  overdueBy        String?
+  completedAt      DateTime?
+  notifiedAt       DateTime? // when last pre-due notification was sent
+}
+
+model WorkOrder {
+  id           String          @id @default(cuid())
+  woNum        String          @unique  // e.g. WO-2025-0118
+  ticketId     String?
+  ticket       Ticket?         @relation(fields: [ticketId], references: [id])
+  machineId    String
+  machine      Machine         @relation(fields: [machineId], references: [id])
+  title        String
+  priority     String          @default("MEDIUM")  // LOW|MEDIUM|HIGH|CRITICAL
+  status       String          @default("OPEN")    // OPEN|IN_PROGRESS|COMPLETED|CANCELLED
+  assigneeId   String
+  assignee     User            @relation(fields: [assigneeId], references: [id])
+  createdAt    DateTime        @default(now())
+  dueDate      String?
+  estimatedHrs String?
+  loggedHrs    String?
+  isPM         Boolean         @default(false)
+  steps        WorkOrderStep[]
+  parts        WorkOrderPart[]
+  labor        WorkOrderLabor[]
+}
+
+model WorkOrderStep {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  title       String
+  done        Boolean   @default(false)
+  sortOrder   Int       @default(0)
+}
+
+model WorkOrderPart {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  partId      String?   // optional FK — links to inventory for auto-deduction
+  part        Part?     @relation(fields: [partId], references: [id])
+  partName    String    // display name (kept even if partId set, in case part is deleted)
+  qty         Int
+  cost        Float     // unit cost at time of adding
+}
+
+model WorkOrderLabor {
+  id          String    @id @default(cuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  hours       String
+}
+
+// ─── Custom fields (admin-defined extra fields for Machine and Part) ──────────
+
+model CustomField {
+  id         String             @id @default(cuid())
+  entityType String             // MACHINE | PART
+  name       String             // internal slug, e.g. "serial_number"
+  label      String             // display label, e.g. "Serial Number"
+  fieldType  String             @default("text") // text | number | select | date
+  options    String?            // JSON array string for select type, e.g. '["Option A","Option B"]'
+  sortOrder  Int                @default(0)
+  required   Boolean            @default(false)
+  orgId      String
+  values     CustomFieldValue[]
+  createdAt  DateTime           @default(now())
+}
+
+model CustomFieldValue {
+  id        String      @id @default(cuid())
+  fieldId   String
+  field     CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  entityId  String      // machine.id or part.id
+  value     String
+  updatedAt DateTime    @updatedAt
+
+  @@unique([fieldId, entityId])
+}
