@@ -28,7 +28,17 @@
       "Bash(lsof -ti:3001,5173,5174,5175)",
       "Bash(curl -s -X POST http://localhost:3001/api/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"havish@tvpm.co.in\",\"password\":\"demo123\"}')",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('Login OK, token:', d['token'][:20]+'...'\\)\")",
-      "Bash(python3 -c ':*)"
+      "Bash(python3 -c ':*)",
+      "Bash(gh repo:*)",
+      "Bash(brew list:*)",
+      "Bash(git --version)",
+      "Bash(brew install:*)",
+      "Bash(/opt/homebrew/bin/gh repo:*)",
+      "Bash(/opt/homebrew/bin/gh auth:*)",
+      "Bash(gh auth:*)",
+      "Bash(git config:*)",
+      "Bash(git -C \"/Users/havishkiran/Library/Mobile Documents/com~apple~CloudDocs/IdeaProjects/machineops\" remote -v)",
+      "Bash(gh --version)"
     ]
   }
 }
