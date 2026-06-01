@@ -35,6 +35,32 @@ router.get('/:id', async (req: Request, res: Response) => {
   res.json(ticket);
 });
 
+// ── Notification routing ─────────────────────────────────────────────────
+// Super Admin always receives all alerts regardless of severity.
+// CRITICAL  → Super Admin + all Supervisors + all Technicians
+// HIGH      → Super Admin + all Supervisors
+// MEDIUM/LOW → Super Admin + all Supervisors
+async function buildNotifyList(severity: string): Promise<{ text: string; recipients: string[] }> {
+  const users = await prisma.user.findMany({ where: { active: true }, select: { name: true, role: true, phone: true } });
+
+  const superAdmins = users.filter(u => u.role === 'Super Admin');
+  const supervisors = users.filter(u => u.role === 'Floor Supervisor' || u.role === 'Shift Supervisor');
+  const technicians = users.filter(u => u.role === 'Senior Technician' || u.role === 'Technician');
+
+  let recipients: typeof users = [...superAdmins, ...supervisors];
+
+  if (severity === 'CRITICAL') {
+    recipients = [...superAdmins, ...supervisors, ...technicians];
+  }
+
+  // Deduplicate by name
+  const seen = new Set<string>();
+  const unique = recipients.filter(r => { if (seen.has(r.name)) return false; seen.add(r.name); return true; });
+
+  const names = unique.map(r => r.name).join(', ');
+  return { text: `WhatsApp sent → ${names || 'Super Admin'}`, recipients: unique.map(r => r.name) };
+}
+
 // POST /api/tickets
 router.post('/', async (req: Request, res: Response) => {
   const { machineId, severity, type, title, description, raisedById, orgId } = req.body;
@@ -58,11 +84,14 @@ router.post('/', async (req: Request, res: Response) => {
     include: TICKET_INCLUDE,
   });
 
+  // Build notification recipient list based on severity routing rules
+  const { text: notifyText } = await buildNotifyList(severity);
+
   // Add initial timeline entries
   await prisma.ticketTimeline.createMany({
     data: [
       { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: `Ticket raised` },
-      { ticketId: ticket.id, time: hhmm, kind: 'info', icon: 'whatsapp', text: 'WhatsApp sent → Supervisor, 3 technicians' },
+      { ticketId: ticket.id, time: hhmm, kind: 'info', icon: 'whatsapp', text: notifyText },
     ],
   });
 

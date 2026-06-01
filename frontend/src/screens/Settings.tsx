@@ -83,13 +83,18 @@ export default function Settings() {
           <div className="card card-pad">
             <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Routing rules</h3>
             <p style={{ fontSize: 13, color: '#64748B', marginBottom: 16 }}>Who gets notified when a ticket is raised.</p>
-            {([['Critical', 'Supervisor + all technicians + plant head', 'CRITICAL'], ['High', 'Supervisor + assigned technician', 'HIGH'], ['Medium / Low', 'Supervisor only', 'LOW']] as [string, string, string][]).map(([sev, who, c], i) => (
+            {([
+              ['Critical', 'Super Admin + all supervisors + all technicians', 'CRITICAL'],
+              ['High', 'Super Admin + all supervisors', 'HIGH'],
+              ['Medium / Low', 'Super Admin + all supervisors', 'LOW'],
+            ] as [string, string, string][]).map(([sev, who, c], i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: i < 2 ? '1px solid #F1F5F9' : 'none' }}>
                 <Badge status={c} label={sev} />
                 <span style={{ flex: 1, fontSize: 13.5, color: '#475569' }}>{who}</span>
                 <Toggle on={true} />
               </div>
             ))}
+            <p style={{ fontSize: 12, color: '#94A3B8', marginTop: 12 }}>Super Admin always receives alerts for every ticket, regardless of severity.</p>
           </div>
         </div>
       )}

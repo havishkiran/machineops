@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
 import { fmtINR } from '../types';
 import { Btn, Photo } from '../components/ui';
@@ -63,32 +63,69 @@ function StackBars({ days }: { days: { label: string; crit: number; high: number
   );
 }
 
+function rangeCutoff(range: string): Date {
+  const now = new Date();
+  if (range === '7d') { const d = new Date(now); d.setDate(d.getDate() - 7); return d; }
+  if (range === '30d') { const d = new Date(now); d.setDate(d.getDate() - 30); return d; }
+  // quarter: beginning of current quarter
+  const q = Math.floor(now.getMonth() / 3);
+  return new Date(now.getFullYear(), q * 3, 1);
+}
+
+function exportCSV(rows: string[][], filename: string) {
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function Reports() {
   const { tickets, parts, pmTasks, machines, workOrders } = useStore();
   const [range, setRange] = useState('7d');
 
-  // ── Core counts ──────────────────────────────────────────────────────────
+  const cutoff = useMemo(() => rangeCutoff(range), [range]);
+  const rangeLabel = range === '7d' ? 'Last 7 days' : range === '30d' ? 'Last 30 days' : 'This quarter';
+
+  // ── Filter all time-sensitive data by selected range ──────────────────────
+  const filteredTickets = useMemo(
+    () => tickets.filter(t => new Date(t.raisedAt) >= cutoff),
+    [tickets, cutoff]
+  );
+  const filteredWOs = useMemo(
+    () => workOrders.filter(w => new Date(w.createdAt ?? w.updatedAt ?? 0) >= cutoff),
+    [workOrders, cutoff]
+  );
+
+  // PM compliance is snapshot-based (overdue/due state), not time-filtered
   const pmOverdue = pmTasks.filter(p => p.state === 'OVERDUE').length;
   const pmDueToday = pmTasks.filter(p => p.state === 'DUE').length;
   const pmCompliance = Math.round(((pmTasks.length - pmOverdue) / (pmTasks.length || 1)) * 100);
 
-  // Spare parts spend: sum of (cost × consumed qty) from part transactions via parts
-  // Use parts cost × (initial stock estimate) as a proxy — just use parts.cost sum for now
   const spareSpend = parts.reduce((s, p) => s + (p.cost ?? 0) * Math.max(0, (p.qty ?? 0)), 0);
 
-  // ── Tickets per day (last 7 days) ────────────────────────────────────────
+  // ── Tickets per day (bucketed into range) ─────────────────────────────────
   const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    d.setHours(0, 0, 0, 0);
-    const next = new Date(d); next.setDate(d.getDate() + 1);
-    const dayTickets = tickets.filter(t => {
+  const barDays = range === '7d' ? 7 : range === '30d' ? 30 : Math.round((Date.now() - cutoff.getTime()) / 86400000);
+  // Show at most 12 bars; group days if range > 12 days
+  const barCount = Math.min(barDays, 12);
+  const daysPerBar = Math.ceil(barDays / barCount);
+
+  const days = Array.from({ length: barCount }, (_, i) => {
+    const from = new Date(cutoff);
+    from.setDate(from.getDate() + i * daysPerBar);
+    const to = new Date(from);
+    to.setDate(to.getDate() + daysPerBar);
+    const dayTickets = filteredTickets.filter(t => {
       const ts = new Date(t.raisedAt).getTime();
-      return ts >= d.getTime() && ts < next.getTime();
+      return ts >= from.getTime() && ts < to.getTime();
     });
+    const label = daysPerBar === 1
+      ? DAY_LABELS[from.getDay()]
+      : `${from.getDate()}/${from.getMonth() + 1}`;
     return {
-      label: DAY_LABELS[d.getDay()],
+      label,
       crit: dayTickets.filter(t => t.severity === 'CRITICAL').length,
       high: dayTickets.filter(t => t.severity === 'HIGH').length,
       med: dayTickets.filter(t => t.severity === 'MEDIUM').length,
@@ -98,16 +135,16 @@ export default function Reports() {
 
   // ── Ticket status donut ──────────────────────────────────────────────────
   const statusSeg = [
-    { label: 'Open', value: tickets.filter(t => t.status === 'OPEN').length, color: '#1D4ED8' },
-    { label: 'In progress', value: tickets.filter(t => ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length, color: '#D97706' },
-    { label: 'Resolved', value: tickets.filter(t => t.status === 'RESOLVED').length, color: '#16A34A' },
-    { label: 'Closed', value: tickets.filter(t => t.status === 'CLOSED').length, color: '#94A3B8' },
+    { label: 'Open', value: filteredTickets.filter(t => t.status === 'OPEN').length, color: '#1D4ED8' },
+    { label: 'In progress', value: filteredTickets.filter(t => ['ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length, color: '#D97706' },
+    { label: 'Resolved', value: filteredTickets.filter(t => t.status === 'RESOLVED').length, color: '#16A34A' },
+    { label: 'Closed', value: filteredTickets.filter(t => t.status === 'CLOSED').length, color: '#94A3B8' },
   ];
   const totalT = statusSeg.reduce((s, x) => s + x.value, 0);
 
   // ── Top problem machines: most tickets ───────────────────────────────────
   const ticketsByMachine: Record<string, number> = {};
-  tickets.forEach(t => { ticketsByMachine[t.machineId] = (ticketsByMachine[t.machineId] ?? 0) + 1; });
+  filteredTickets.forEach(t => { ticketsByMachine[t.machineId] = (ticketsByMachine[t.machineId] ?? 0) + 1; });
   const topMachineIds = Object.entries(ticketsByMachine)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -128,21 +165,38 @@ export default function Reports() {
 
   const problemMachines = topMachineIds.map(id => {
     const m = machineMap[id];
-    const woForMachine = workOrders.filter(w => w.machineId === id && w.status === 'COMPLETED');
+    const woForMachine = filteredWOs.filter(w => w.machineId === id && w.status === 'COMPLETED');
     return { id, machine: m, tickets: ticketsByMachine[id], workOrders: woForMachine.length };
   });
 
   // ── KPI cards ────────────────────────────────────────────────────────────
-  const openCount = tickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
-  const resolvedCount = tickets.filter(t => ['RESOLVED', 'CLOSED'].includes(t.status)).length;
+  const openCount = filteredTickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
+  const resolvedCount = filteredTickets.filter(t => ['RESOLVED', 'CLOSED'].includes(t.status)).length;
 
   const kpis = [
     { lbl: 'Total tickets', val: String(totalT), delta: `${openCount} open · ${resolvedCount} resolved`, good: null },
-    { lbl: 'Open right now', val: String(openCount), delta: tickets.filter(t => t.severity === 'CRITICAL' && t.status !== 'RESOLVED' && t.status !== 'CLOSED').length + ' critical', good: openCount === 0 },
+    { lbl: 'Open right now', val: String(openCount), delta: filteredTickets.filter(t => t.severity === 'CRITICAL' && t.status !== 'RESOLVED' && t.status !== 'CLOSED').length + ' critical', good: openCount === 0 },
     { lbl: 'PM compliance', val: `${pmCompliance}%`, delta: `${pmOverdue} overdue · ${pmDueToday} due today`, good: pmCompliance >= 90 },
-    { lbl: 'Work orders done', val: String(workOrders.filter(w => w.status === 'COMPLETED').length), delta: `${workOrders.filter(w => w.status === 'IN_PROGRESS').length} in progress`, good: null },
+    { lbl: 'Work orders done', val: String(filteredWOs.filter(w => w.status === 'COMPLETED').length), delta: `${filteredWOs.filter(w => w.status === 'IN_PROGRESS').length} in progress`, good: null },
     { lbl: 'Spare-parts value', val: fmtINR(spareSpend), delta: `${parts.length} parts tracked`, good: null },
   ];
+
+  function handleExport() {
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const rows: string[][] = [
+      ['Ticket #', 'Machine', 'Severity', 'Status', 'Type', 'Title', 'Raised At'],
+      ...filteredTickets.map(t => [
+        t.ticketNum ?? '',
+        machineMap[t.machineId]?.name ?? t.machineId,
+        t.severity,
+        t.status,
+        t.type ?? '',
+        t.title ?? '',
+        new Date(t.raisedAt).toLocaleString('en-IN'),
+      ]),
+    ];
+    exportCSV(rows, `machineops-tickets-${range}-${dateStr}.csv`);
+  }
 
   return (
     <div className="content-pad fade-in">
@@ -153,7 +207,7 @@ export default function Reports() {
               <button key={k} className={range === k ? 'on' : ''} onClick={() => setRange(k)}>{l}</button>
             ))}
           </div>
-          <Btn variant="secondary" size="lg" icon="download">Export</Btn>
+          <Btn variant="secondary" size="lg" icon="download" onClick={handleExport}>Export</Btn>
         </div>
       } />
 
@@ -171,7 +225,7 @@ export default function Reports() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, marginBottom: 16 }} className="rep-row">
         <div className="card card-pad">
-          <SectionHead title="Tickets raised" sub="Last 7 days, by severity" />
+          <SectionHead title="Tickets raised" sub={rangeLabel + ', by severity'} />
           <StackBars days={days} />
           <div style={{ display: 'flex', gap: 16, marginTop: 14, flexWrap: 'wrap' }}>
             {([['Critical', '#DC2626'], ['High', '#C2410C'], ['Medium', '#D97706'], ['Low', '#94A3B8']] as [string, string][]).map(([l, c]) => (
@@ -180,7 +234,7 @@ export default function Reports() {
           </div>
         </div>
         <div className="card card-pad">
-          <SectionHead title="By status" sub={`${totalT} tickets total`} />
+          <SectionHead title="By status" sub={`${totalT} tickets · ${rangeLabel.toLowerCase()}`} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
             <Donut segments={statusSeg} center={<><div style={{ fontSize: 26, fontWeight: 700, fontFamily: 'var(--font-head)' }}>{totalT}</div><div style={{ fontSize: 11, color: '#94A3B8' }}>tickets</div></>} />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
@@ -198,10 +252,10 @@ export default function Reports() {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 16, marginBottom: 16 }} className="rep-row">
         <div className="card card-pad">
-          <SectionHead title="Most tickets by machine" sub="Top 5 all time" />
+          <SectionHead title="Most tickets by machine" sub={`Top 5 · ${rangeLabel.toLowerCase()}`} />
           {downtimeByMachine.length > 0
             ? <HBar rows={downtimeByMachine} />
-            : <p style={{ fontSize: 13, color: '#94A3B8' }}>No ticket data yet.</p>}
+            : <p style={{ fontSize: 13, color: '#94A3B8' }}>No tickets in this period.</p>}
         </div>
         <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column' }}>
           <SectionHead title="PM compliance" sub="Completed vs scheduled" />
@@ -219,7 +273,7 @@ export default function Reports() {
       </div>
 
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 20px' }}><SectionHead title="Top problem machines" sub="Most tickets raised" /></div>
+        <div style={{ padding: '16px 20px' }}><SectionHead title="Top problem machines" sub={`Most tickets · ${rangeLabel.toLowerCase()}`} /></div>
         {problemMachines.length > 0 ? (
           <table className="tbl">
             <thead><tr><th style={{ width: 56 }}></th><th>Machine</th><th>Tickets</th><th>WOs done</th><th></th></tr></thead>
@@ -227,7 +281,6 @@ export default function Reports() {
               {problemMachines.map(p => {
                 const m = p.machine;
                 const photo = m?.photos?.[0]?.url ?? null;
-                const unit = machines.find(mc => mc.id === p.id);
                 return (
                   <tr key={p.id}>
                     <td><Photo src={photo} kind="machine" radius={6} style={{ width: 40, height: 40 }} /></td>
@@ -241,7 +294,7 @@ export default function Reports() {
             </tbody>
           </table>
         ) : (
-          <div style={{ padding: '24px 20px', fontSize: 13, color: '#94A3B8' }}>No ticket data yet.</div>
+          <div style={{ padding: '24px 20px', fontSize: 13, color: '#94A3B8' }}>No ticket data in this period.</div>
         )}
       </div>
     </div>
