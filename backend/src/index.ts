@@ -22,9 +22,9 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http:/
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json());
 
-// Auth middleware (applied to all /api/* except /api/auth)
+// Auth middleware (applied to all /api/* except /api/auth and /api/health)
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth')) return next();
+  if (req.path.startsWith('/auth') || req.path === '/health') return next();
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Unauthorized' });
