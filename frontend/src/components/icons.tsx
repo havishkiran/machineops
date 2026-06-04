@@ -66,4 +66,5 @@ export const Icons: Record<string, React.FC<IconProps>> = {
   upload: (p) => <Ic {...p}><path d="M12 15V3M7 8l5-5 5 5M4 21h16"/></Ic>,
   link: (p) => <Ic {...p}><path d="M9 15l6-6M10 6l1-1a4 4 0 0 1 6 6l-1 1M14 18l-1 1a4 4 0 0 1-6-6l1-1"/></Ic>,
   lock: (p) => <Ic {...p}><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Ic>,
+  refresh: (p) => <Ic {...p}><path d="M21 12a9 9 0 0 1-15.5 6.2L3 21M3 12a9 9 0 0 1 15.5-6.2L21 3M21 3v6h-6M3 21v-6h6"/></Ic>,
 };

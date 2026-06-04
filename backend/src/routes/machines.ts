@@ -3,6 +3,39 @@ import { prisma } from '../lib/prisma';
 
 const router = Router();
 
+// Generate abbreviation: first letter of each word (multi-word), or first N chars (single word)
+function abbrev(str: string, maxLen: number): string {
+  const words = str.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  if (words.length === 1) return words[0].slice(0, maxLen).toUpperCase();
+  return words.map(w => w[0]).join('').slice(0, maxLen).toUpperCase();
+}
+
+// GET /api/machines/next-code?unitCode=TVPM&section=Dipping&machineType=Circular+Saw
+router.get('/next-code', async (req: Request, res: Response) => {
+  const orgId = (req as any).user?.orgId;
+  const { unitCode, section, machineType } = req.query as Record<string, string>;
+  if (!unitCode || !section || !machineType) {
+    return res.status(400).json({ error: 'unitCode, section and machineType are required' });
+  }
+  const sectionAbbr = abbrev(section, 3);
+  const typeAbbr = abbrev(machineType, 4);
+  const prefix = `${unitCode.toUpperCase()}-${sectionAbbr}-${typeAbbr}-`;
+
+  const existing = await prisma.machine.findMany({
+    where: { orgId, code: { startsWith: prefix } },
+    select: { code: true },
+  });
+
+  let maxSeq = 0;
+  for (const m of existing) {
+    const seq = parseInt(m.code.slice(prefix.length), 10);
+    if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+  }
+
+  res.json({ code: `${prefix}${String(maxSeq + 1).padStart(3, '0')}` });
+});
+
 // GET /api/machines
 router.get('/', async (req: Request, res: Response) => {
   const orgId = (req as any).user?.orgId;
@@ -39,10 +72,11 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/machines
 router.post('/', async (req: Request, res: Response) => {
   const orgId = (req as any).user?.orgId;
-  const { name, code, unitId, section, status, manufacturer, model, year, lastPM, nextPM, uptime } = req.body;
+  const { name, code, machineType, unitId, section, status, manufacturer, model, year, lastPM, nextPM, uptime } = req.body;
   const machine = await prisma.machine.create({
     data: {
       name, code, unitId, section,
+      machineType: machineType || null,
       status: status || 'WORKING',
       manufacturer: manufacturer || null,
       model: model || null,
@@ -59,12 +93,13 @@ router.post('/', async (req: Request, res: Response) => {
 
 // PUT /api/machines/:id
 router.put('/:id', async (req: Request, res: Response) => {
-  const { name, code, unitId, section, status, manufacturer, model, year, lastPM, nextPM, uptime } = req.body;
+  const { name, code, machineType, unitId, section, status, manufacturer, model, year, lastPM, nextPM, uptime } = req.body;
   const machine = await prisma.machine.update({
     where: { id: req.params.id },
     data: {
       ...(name !== undefined && { name }),
       ...(code !== undefined && { code }),
+      ...(machineType !== undefined && { machineType }),
       ...(unitId !== undefined && { unitId }),
       ...(section !== undefined && { section }),
       ...(status !== undefined && { status }),

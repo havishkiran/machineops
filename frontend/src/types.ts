@@ -52,6 +52,7 @@ export interface Machine {
   id: string;
   name: string;
   code: string;
+  machineType?: string | null;
   unitId: string;
   section: string;
   status: MachineStatus;

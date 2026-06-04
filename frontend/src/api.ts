@@ -30,6 +30,8 @@ export const api = {
   machines: {
     list: () => get<any[]>('/machines'),
     get: (id: string) => get<any>(`/machines/${id}`),
+    nextCode: (unitCode: string, section: string, machineType: string) =>
+      get<{ code: string }>(`/machines/next-code?unitCode=${encodeURIComponent(unitCode)}&section=${encodeURIComponent(section)}&machineType=${encodeURIComponent(machineType)}`),
     photos: (id: string) => get<any[]>(`/machines/${id}/photos`),
     addPhoto: (id: string, url: string, isPrimary?: boolean) => post<any>(`/machines/${id}/photos`, { url, isPrimary }),
     deletePhoto: (id: string, photoId: string) => del<any>(`/machines/${id}/photos/${photoId}`),

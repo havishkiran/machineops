@@ -20,7 +20,8 @@ function MachineForm({ machine, onClose, onSaved }: MachineFormProps) {
   const [form, setForm] = useState({
     name: machine?.name ?? '',
     code: machine?.code ?? '',
-    unitId: machine?.unitId ?? 'tvpm',
+    machineType: machine?.machineType ?? '',
+    unitId: machine?.unitId ?? (units[0]?.id ?? 'tvpm'),
     section: machine?.section ?? '',
     status: machine?.status ?? 'WORKING',
     manufacturer: machine?.manufacturer ?? '',
@@ -30,6 +31,32 @@ function MachineForm({ machine, onClose, onSaved }: MachineFormProps) {
     nextPM: machine?.nextPM ?? '',
     uptime: machine?.uptime ?? 100,
   });
+
+  // Auto-generate machine code from unit+section+machineType (add mode only)
+  const [codeGenLoading, setCodeGenLoading] = useState(false);
+  const [codeManuallyEdited, setCodeManuallyEdited] = useState(isEdit);
+
+  const generateCode = async (unitId = form.unitId, section = form.section, machineType = form.machineType) => {
+    const selectedUnit = units.find(u => u.id === unitId);
+    if (!selectedUnit || !section.trim() || !machineType.trim()) return;
+    setCodeGenLoading(true);
+    try {
+      const { code } = await api.machines.nextCode(selectedUnit.code, section.trim(), machineType.trim());
+      setForm(f => ({ ...f, code }));
+      setCodeManuallyEdited(false);
+    } catch {
+      // silently ignore — user can still type manually
+    } finally {
+      setCodeGenLoading(false);
+    }
+  };
+
+  // Auto-generate when unit/section/machineType change (add mode, not manually edited)
+  useEffect(() => {
+    if (isEdit || codeManuallyEdited) return;
+    const timer = setTimeout(() => generateCode(form.unitId, form.section, form.machineType), 500);
+    return () => clearTimeout(timer);
+  }, [form.unitId, form.section, form.machineType]);
 
   // Custom field values for this machine
   const machineCustomFields = customFields.filter(f => f.entityType === 'MACHINE');
@@ -62,7 +89,7 @@ function MachineForm({ machine, onClose, onSaved }: MachineFormProps) {
     setSaving(true);
     setError('');
     try {
-      const payload = { ...form, uptime: Number(form.uptime) };
+      const payload = { ...form, uptime: Number(form.uptime), machineType: form.machineType || null };
       const saved = isEdit
         ? await updateMachine(machine!.id, payload)
         : await createMachine(payload);
@@ -100,14 +127,6 @@ function MachineForm({ machine, onClose, onSaved }: MachineFormProps) {
           <Field label="Machine name *" style={{ gridColumn: '1 / -1' }}>
             <input className="input" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Dipping Machine 4" />
           </Field>
-          <Field label="Machine code *">
-            <input className="inp mono" value={form.code} onChange={e => set('code', e.target.value)} placeholder="U2-TVPM/DIP-4/1" />
-          </Field>
-          <Field label="Status">
-            <select className="input" value={form.status} onChange={e => set('status', e.target.value)}>
-              {statusOptions.map(s => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
-            </select>
-          </Field>
           <Field label="Unit">
             <select className="input" value={form.unitId} onChange={e => set('unitId', e.target.value)}>
               {unitOptions.map(u => <option key={u.id} value={u.id}>{u.code} — {u.name}</option>)}
@@ -115,6 +134,41 @@ function MachineForm({ machine, onClose, onSaved }: MachineFormProps) {
           </Field>
           <Field label="Section *">
             <input className="input" value={form.section} onChange={e => set('section', e.target.value)} placeholder="e.g. Dipping" />
+          </Field>
+          <Field label="Machine type" style={{ gridColumn: '1 / -1' }}>
+            <input className="input" value={form.machineType} onChange={e => { set('machineType', e.target.value); setCodeManuallyEdited(false); }} placeholder="e.g. Circular Saw, Grinder, Arc Welder" />
+          </Field>
+          <Field label="Machine code *" style={{ gridColumn: '1 / -1' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <input
+                className="input mono"
+                style={{ flex: 1 }}
+                value={form.code}
+                onChange={e => { set('code', e.target.value); setCodeManuallyEdited(true); }}
+                placeholder="Auto-generated from unit · section · type"
+              />
+              <button
+                type="button"
+                title="Re-generate code"
+                onClick={() => { setCodeManuallyEdited(false); generateCode(form.unitId, form.section, form.machineType); }}
+                disabled={codeGenLoading}
+                style={{ flexShrink: 0, padding: '0 10px', height: 38, border: '1px solid #E2E8F0', borderRadius: 8, background: '#F8FAFC', cursor: 'pointer', color: '#1B4FD8', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                <Icons.refresh size={14} />
+                {codeGenLoading ? '…' : 'Generate'}
+              </button>
+            </div>
+            {!isEdit && form.unitId && form.section && form.machineType && (
+              <div style={{ fontSize: 11, color: '#64748B', marginTop: 4 }}>
+                Format: <span className="mono" style={{ color: '#1B4FD8' }}>
+                  {units.find(u => u.id === form.unitId)?.code ?? ''}-{form.section.slice(0,3).toUpperCase()}-{form.machineType.trim().split(/\s+/).map((w: string) => w[0]).join('').slice(0,4).toUpperCase()}-NNN
+                </span>
+              </div>
+            )}
+          </Field>
+          <Field label="Status">
+            <select className="input" value={form.status} onChange={e => set('status', e.target.value)}>
+              {statusOptions.map(s => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+            </select>
           </Field>
         </div>
 

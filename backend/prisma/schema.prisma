@@ -68,6 +68,7 @@ model Machine {
   id           String         @id @default(cuid())
   name         String
   code         String         @unique
+  machineType  String?        // e.g. "Circular Saw" — used for auto code generation
   unitId       String
   unit         Unit?          @relation(fields: [unitId], references: [id])
   section      String
