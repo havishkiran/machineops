@@ -92,8 +92,9 @@ export interface TicketComment {
 export interface Ticket {
   id: string;
   ticketNum: string;
-  machineId: string;
-  machine: Machine;
+  machineId?: string | null;
+  machine?: Machine | null;
+  category: string;  // Machine | Development | Other
   severity: Severity;
   status: TicketStatus;
   type: string;
@@ -110,21 +111,38 @@ export interface Ticket {
   comments: TicketComment[];
 }
 
-export interface Part {
+export interface PartMachineLink {
   id: string;
-  name: string;
+  partId: string;
   machineId: string;
   machine: Machine;
+}
+
+export interface Part {
+  id: string;
+  partNumber?: string | null;
+  name: string;
   spec?: string | null;
   qty: number;
   minQty: number;
   status: StockStatus;
   photoUrl?: string | null;
   supplier?: string | null;
+  vendorName?: string | null;
+  vendorPhone?: string | null;
+  location?: string | null;
+  category?: string | null;
   cost: number;
   criticality: string;
   orgId: string;
+  machines: PartMachineLink[];
   transactions?: PartTransaction[];
+}
+
+export interface PartCategory {
+  id: string;
+  name: string;
+  orgId: string;
 }
 
 export interface PartTransaction {
@@ -198,6 +216,7 @@ export interface WorkOrder {
   woNum: string;
   ticketId?: string | null;
   ticket?: Ticket | null;
+  pmTaskId?: string | null;
   machineId: string;
   machine: Machine;
   title: string;

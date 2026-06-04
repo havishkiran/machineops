@@ -144,7 +144,7 @@ export default function Reports() {
 
   // ── Top problem machines: most tickets ───────────────────────────────────
   const ticketsByMachine: Record<string, number> = {};
-  filteredTickets.forEach(t => { ticketsByMachine[t.machineId] = (ticketsByMachine[t.machineId] ?? 0) + 1; });
+  filteredTickets.forEach(t => { if (t.machineId) { ticketsByMachine[t.machineId] = (ticketsByMachine[t.machineId] ?? 0) + 1; } });
   const topMachineIds = Object.entries(ticketsByMachine)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
@@ -187,7 +187,7 @@ export default function Reports() {
       ['Ticket #', 'Machine', 'Severity', 'Status', 'Type', 'Title', 'Raised At'],
       ...filteredTickets.map(t => [
         t.ticketNum ?? '',
-        machineMap[t.machineId]?.name ?? t.machineId,
+        (t.machineId ? machineMap[t.machineId]?.name : null) ?? t.machineId ?? '—',
         t.severity,
         t.status,
         t.type ?? '',

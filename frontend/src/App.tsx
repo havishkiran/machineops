@@ -18,7 +18,7 @@ import Settings from './screens/Settings';
 const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { key: 'machines', label: 'Machines', icon: 'machine' },
-  { key: 'tickets', label: 'Tickets', icon: 'ticket', badge: 'open' },
+  { key: 'tickets', label: 'Breakdowns', icon: 'ticket', badge: 'open' },
   { key: 'maintenance', label: 'Maintenance', icon: 'maintenance' },
   { key: 'parts', label: 'Spare Parts', icon: 'parts' },
   { key: 'workorders', label: 'Work Orders', icon: 'workorder' },
@@ -76,7 +76,7 @@ function Topbar() {
   const openCount = tickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
   const crumbs: Record<string, string[]> = {
     dashboard: ['Dashboard'], machines: ['Machines'], machineDetail: ['Machines', 'Detail'],
-    tickets: ['Tickets'], ticketDetail: ['Tickets', 'Detail'], maintenance: ['Maintenance'],
+    tickets: ['Breakdowns'], ticketDetail: ['Breakdowns', 'Detail'], maintenance: ['Maintenance'],
     parts: ['Spare Parts'], workorders: ['Work Orders'], reports: ['Reports'], settings: ['Settings'],
   };
   const breadcrumbs = crumbs[route.screen] || ['Dashboard'];
@@ -108,7 +108,7 @@ function MobileTop() {
   const openCount = tickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
   const titles: Record<string, string> = {
     dashboard: 'Dashboard', machines: 'Machines', machineDetail: 'Machine',
-    tickets: 'Tickets', ticketDetail: 'Ticket', maintenance: 'Maintenance',
+    tickets: 'Breakdowns', ticketDetail: 'Breakdown', maintenance: 'Maintenance',
     parts: 'Spare Parts', workorders: 'Work Orders', reports: 'Reports', settings: 'Settings',
   };
   const title = titles[route.screen] || 'MachineOps';
@@ -132,7 +132,7 @@ function MobileTab() {
   const tabs = [
     { key: 'dashboard', label: 'Home', icon: 'home' },
     { key: 'machines', label: 'Machines', icon: 'machine' },
-    { key: 'raise', label: 'Ticket', raise: true },
+    { key: 'raise', label: 'Report', raise: true },
     { key: 'maintenance', label: 'Maint.', icon: 'maintenance' },
     { key: 'more', label: 'More', icon: 'more' },
   ];

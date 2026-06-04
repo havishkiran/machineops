@@ -64,15 +64,6 @@ export const api = {
     complete: (id: string) => post<any>(`/pm-tasks/${id}/complete`, {}),
     dueSoon: () => get<any[]>('/pm-tasks/due-soon'),
   },
-  workOrders: {
-    list: () => get<any[]>('/work-orders'),
-    get: (id: string) => get<any>(`/work-orders/${id}`),
-    create: (body: any) => post<any>('/work-orders', body),
-    update: (id: string, body: any) => put<any>(`/work-orders/${id}`, body),
-    toggleStep: (id: string, stepId: string) => post<any>(`/work-orders/${id}/steps/${stepId}/toggle`, {}),
-    addPart: (id: string, body: any) => post<any>(`/work-orders/${id}/parts`, body),
-    removePart: (id: string, partItemId: string) => del<any>(`/work-orders/${id}/parts/${partItemId}`),
-  },
   reports: {
     summary: () => get<any>('/reports/summary'),
   },
@@ -100,5 +91,20 @@ export const api = {
     create: (body: any) => post<any>('/users', body),
     update: (id: string, body: any) => put<any>(`/users/${id}`, body),
     delete: (id: string) => del<any>(`/users/${id}`),
+  },
+  partCategories: {
+    list: () => get<any[]>('/part-categories'),
+    create: (name: string) => post<any>('/part-categories', { name }),
+    delete: (id: string) => del<any>(`/part-categories/${id}`),
+  },
+  workOrders: {
+    list: () => get<any[]>('/work-orders'),
+    get: (id: string) => get<any>(`/work-orders/${id}`),
+    create: (body: any) => post<any>('/work-orders', body),
+    update: (id: string, body: any) => put<any>(`/work-orders/${id}`, body),
+    assign: (id: string, assigneeId: string) => post<any>(`/work-orders/${id}/assign`, { assigneeId }),
+    toggleStep: (id: string, stepId: string) => post<any>(`/work-orders/${id}/steps/${stepId}/toggle`, {}),
+    addPart: (id: string, body: any) => post<any>(`/work-orders/${id}/parts`, body),
+    removePart: (id: string, partItemId: string) => del<any>(`/work-orders/${id}/parts/${partItemId}`),
   },
 };

@@ -12,6 +12,8 @@ import settingsRoutes from './routes/settings';
 import customFieldsRoutes from './routes/custom-fields';
 import unitsRoutes from './routes/units';
 import usersRoutes from './routes/users';
+import partCategoriesRoutes from './routes/part-categories';
+import { startCronJobs } from './lib/cron';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,9 +53,11 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/custom-fields', customFieldsRoutes);
 app.use('/api/units', unitsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/part-categories', partCategoriesRoutes);
 
 app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 app.listen(PORT, () => {
   console.log(`MachineOps API running on http://localhost:${PORT}`);
+  startCronJobs();
 });

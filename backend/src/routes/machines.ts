@@ -60,7 +60,7 @@ router.get('/:id', async (req: Request, res: Response) => {
         include: { raisedBy: true, assignedTo: true },
         orderBy: { raisedAt: 'desc' },
       },
-      parts: true,
+      partMachines: { include: { part: true } },
       pmTasks: { include: { assignee: true } },
       workOrders: { include: { assignee: true, steps: { orderBy: { sortOrder: 'asc' } } } },
     },

@@ -4,6 +4,9 @@ const TicketStatus = { OPEN: 'OPEN', ACKNOWLEDGED: 'ACKNOWLEDGED', IN_PROGRESS: 
 
 const router = Router();
 
+// Roles that can acknowledge a breakdown (admin / supervisor level)
+const ACKNOWLEDGE_ROLES = ['Super Admin', 'Floor Supervisor', 'Shift Supervisor'];
+
 const TICKET_INCLUDE = {
   machine: { include: { photos: { where: { isPrimary: true }, take: 1 } } },
   raisedBy: true,
@@ -63,7 +66,7 @@ async function buildNotifyList(severity: string): Promise<{ text: string; recipi
 
 // POST /api/tickets
 router.post('/', async (req: Request, res: Response) => {
-  const { machineId, severity, type, title, description, raisedById, orgId } = req.body;
+  const { machineId, category = 'Machine', severity, type, title, description, raisedById } = req.body;
 
   // Generate ticket number
   const count = await prisma.ticket.count();
@@ -73,7 +76,8 @@ router.post('/', async (req: Request, res: Response) => {
   const ticket = await prisma.ticket.create({
     data: {
       ticketNum,
-      machineId,
+      machineId: machineId || null,
+      category,
       severity,
       type,
       title,
@@ -90,7 +94,7 @@ router.post('/', async (req: Request, res: Response) => {
   // Add initial timeline entries
   await prisma.ticketTimeline.createMany({
     data: [
-      { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: `Ticket raised` },
+      { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: `Breakdown raised` },
       { ticketId: ticket.id, time: hhmm, kind: 'info', icon: 'whatsapp', text: notifyText },
     ],
   });
@@ -99,8 +103,13 @@ router.post('/', async (req: Request, res: Response) => {
   res.status(201).json(full);
 });
 
-// POST /api/tickets/:id/acknowledge
+// POST /api/tickets/:id/acknowledge  — admin/supervisor only
 router.post('/:id/acknowledge', async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!user || !ACKNOWLEDGE_ROLES.includes(user.role)) {
+    return res.status(403).json({ error: 'Only supervisors and admins can acknowledge breakdowns.' });
+  }
+
   const { userId, userName } = req.body;
   const hhmm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 

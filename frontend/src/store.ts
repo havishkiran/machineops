@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './api';
-import { Ticket, Part, Machine, PMTask, WorkOrder, User, Organization, CustomField, Unit, setToken, clearToken, getToken } from './types';
+import { Ticket, Part, Machine, PMTask, WorkOrder, User, Organization, CustomField, Unit, PartCategory, setToken, clearToken, getToken } from './types';
 
 export interface RouteState {
   screen: string;
@@ -31,6 +31,7 @@ interface StoreState {
   customFields: CustomField[];
   units: Unit[];
   users: User[];
+  partCategories: PartCategory[];
 
   // UI
   toasts: Toast[];
@@ -49,7 +50,7 @@ interface StoreState {
   resolveTicket: (id: string, note: string, part: Part | null) => Promise<void>;
   assignTicket: (id: string, userId: string, userName: string) => Promise<void>;
   addComment: (id: string, text: string) => Promise<void>;
-  createTicket: (data: { machineId: string; severity: string; type: string; desc: string }) => Promise<string>;
+  createTicket: (data: { machineId?: string | null; category?: string; severity: string; type: string; desc: string }) => Promise<string>;
 
   // Part mutations
   consumePart: (id: string, qty: number) => Promise<void>;
@@ -90,8 +91,14 @@ interface StoreState {
   // Work order CRUD
   createWorkOrder: (data: any) => Promise<WorkOrder>;
   updateWorkOrder: (id: string, data: any) => Promise<WorkOrder>;
+  assignWorkOrder: (id: string, assigneeId: string) => Promise<WorkOrder>;
   addWOPart: (woId: string, data: any) => Promise<WorkOrder>;
   removeWOPart: (woId: string, partItemId: string) => Promise<WorkOrder>;
+
+  // Part categories
+  loadPartCategories: () => Promise<void>;
+  createPartCategory: (name: string) => Promise<PartCategory>;
+  deletePartCategory: (id: string) => Promise<void>;
 
   // Settings
   setOrg: (updater: (prev: Organization) => Organization) => void;
@@ -111,6 +118,7 @@ export const useStore = create<StoreState>((set, get) => ({
   customFields: [],
   units: [],
   users: [],
+  partCategories: [],
   toasts: [],
   loading: false,
 
@@ -142,7 +150,7 @@ export const useStore = create<StoreState>((set, get) => ({
   loadAll: async () => {
     set({ loading: true });
     try {
-      const [machines, tickets, parts, pmTasks, workOrders, settings, customFields, units, users] = await Promise.all([
+      const [machines, tickets, parts, pmTasks, workOrders, settings, customFields, units, users, partCategories] = await Promise.all([
         api.machines.list(),
         api.tickets.list(),
         api.parts.list(),
@@ -152,8 +160,9 @@ export const useStore = create<StoreState>((set, get) => ({
         api.customFields.list(),
         api.units.list(),
         api.users.list(),
+        api.partCategories.list(),
       ]);
-      set({ machines, tickets, parts, pmTasks, workOrders, org: settings.org, customFields, units, users, loading: false });
+      set({ machines, tickets, parts, pmTasks, workOrders, org: settings.org, customFields, units, users, partCategories, loading: false });
 
       // Check for PM tasks due soon — show in-app notification toasts
       try {
@@ -210,11 +219,12 @@ export const useStore = create<StoreState>((set, get) => ({
     set(s => ({ tickets: s.tickets.map(t => t.id === id ? updated : t) }));
   },
 
-  createTicket: async ({ machineId, severity, type, desc }) => {
+  createTicket: async ({ machineId, category = 'Machine', severity, type, desc }) => {
     const { me } = get();
     const title = desc.split('\n')[0].slice(0, 60) || 'Reported issue';
     const newTicket = await api.tickets.create({
-      machineId,
+      machineId: machineId || null,
+      category,
       severity: severity.toUpperCase(),
       type,
       title,
@@ -371,6 +381,13 @@ export const useStore = create<StoreState>((set, get) => ({
     return wo;
   },
 
+  assignWorkOrder: async (id, assigneeId) => {
+    const wo = await api.workOrders.assign(id, assigneeId);
+    set(s => ({ workOrders: s.workOrders.map(w => w.id === id ? wo : w) }));
+    get().toast('Work order reassigned');
+    return wo;
+  },
+
   addWOPart: async (woId, data) => {
     const wo = await api.workOrders.addPart(woId, data);
     set(s => ({ workOrders: s.workOrders.map(w => w.id === woId ? wo : w) }));
@@ -380,6 +397,21 @@ export const useStore = create<StoreState>((set, get) => ({
     const wo = await api.workOrders.removePart(woId, partItemId);
     set(s => ({ workOrders: s.workOrders.map(w => w.id === woId ? wo : w) }));
     return wo;
+  },
+
+  // Part categories
+  loadPartCategories: async () => {
+    const partCategories = await api.partCategories.list();
+    set({ partCategories });
+  },
+  createPartCategory: async (name) => {
+    const cat = await api.partCategories.create(name);
+    set(s => ({ partCategories: [...s.partCategories, cat].sort((a, b) => a.name.localeCompare(b.name)) }));
+    return cat;
+  },
+  deletePartCategory: async (id) => {
+    await api.partCategories.delete(id);
+    set(s => ({ partCategories: s.partCategories.filter(c => c.id !== id) }));
   },
 
   setOrg: (updater) => {

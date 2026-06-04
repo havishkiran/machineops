@@ -7,6 +7,8 @@ import { Icons } from '../components/icons';
 import { PageTitle } from '../components/shared';
 import { api } from '../api';
 
+const SUPERVISOR_ROLES = ['Super Admin', 'Floor Supervisor', 'Shift Supervisor'];
+
 function ProgressMini({ done, total }: { done: number; total: number }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
@@ -25,7 +27,8 @@ export function WOForm({ prefill, onClose, onSaved }: {
   onClose: () => void;
   onSaved?: (wo: WorkOrder) => void;
 }) {
-  const { machines, users, me, parts: allParts, createWorkOrder } = useStore();
+  const { machines, users, me, parts: allParts, createWorkOrder, units } = useStore();
+  const isSupervisor = me && SUPERVISOR_ROLES.includes(me.role);
   const [form, setForm] = useState({
     title: prefill?.title ?? '',
     machineId: prefill?.machineId ?? '',
@@ -43,7 +46,9 @@ export function WOForm({ prefill, onClose, onSaved }: {
   const [error, setError] = useState('');
 
   const setF = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
-  const machineParts = allParts.filter(p => p.machineId === form.machineId);
+  const machineParts = form.machineId
+    ? allParts.filter(p => p.machines?.some(m => m.machineId === form.machineId))
+    : allParts;
 
   const addStep = () => {
     if (newStep.trim()) { setSteps(s => [...s, newStep.trim()]); setNewStep(''); }
@@ -119,10 +124,14 @@ export function WOForm({ prefill, onClose, onSaved }: {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Assignee *</div>
-            <select className="input" value={form.assigneeId} onChange={e => setF('assigneeId', e.target.value)}>
-              <option value="">Select…</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
+            {isSupervisor ? (
+              <select className="input" value={form.assigneeId} onChange={e => setF('assigneeId', e.target.value)}>
+                <option value="">Select…</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+              </select>
+            ) : (
+              <input className="input" value={me?.name ?? ''} disabled style={{ color: '#64748B' }} />
+            )}
           </div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Priority</div>
@@ -334,13 +343,15 @@ export default function WorkOrders() {
 
 /* ─── WO Detail slide-over ───────────────────────────────────────────────── */
 function WODetail({ wo, onClose, onUpdated }: { wo: WorkOrder; onClose: () => void; onUpdated: (wo: WorkOrder) => void }) {
-  const { nav, updateWorkOrder, resolveTicket, tickets, parts: allParts, addWOPart, removeWOPart } = useStore();
+  const { nav, updateWorkOrder, resolveTicket, tickets, parts: allParts, addWOPart, removeWOPart, assignWorkOrder, users, me } = useStore();
   const [steps, setSteps] = useState(wo.steps);
   const [completing, setCompleting] = useState(false);
   const [addingPart, setAddingPart] = useState(false);
   const [partPick, setPartPick] = useState('');
   const [partQty, setPartQty] = useState('1');
   const [partSaving, setPartSaving] = useState(false);
+  const [assigneeId, setAssigneeId] = useState(wo.assigneeId);
+  const [assignSaving, setAssignSaving] = useState(false);
   const doneN = steps.filter(s => s.done).length;
   const pct = wo.steps.length ? Math.round((doneN / steps.length) * 100) : 0;
   const partCost = wo.parts.reduce((s, p) => s + p.cost * p.qty, 0);
@@ -348,7 +359,9 @@ function WODetail({ wo, onClose, onUpdated }: { wo: WorkOrder; onClose: () => vo
   const linkedTicket = wo.ticketId ? tickets.find(t => t.id === wo.ticketId) : null;
   const canResolveTicket = linkedTicket && !['RESOLVED', 'CLOSED'].includes(linkedTicket.status);
   const canEditParts = ['OPEN', 'IN_PROGRESS'].includes(wo.status);
-  const machineParts = allParts.filter(p => p.machineId === wo.machineId);
+  const isSupervisor = me && SUPERVISOR_ROLES.includes(me.role);
+  const isMyWO = me && wo.assigneeId === me.id;
+  const machineParts = allParts.filter(p => p.machines?.some(m => m.machineId === wo.machineId));
 
   const handleAddPart = async () => {
     if (!partPick) return;
@@ -363,6 +376,17 @@ function WODetail({ wo, onClose, onUpdated }: { wo: WorkOrder; onClose: () => vo
       setAddingPart(false);
     } finally {
       setPartSaving(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    if (!assigneeId || assigneeId === wo.assigneeId) return;
+    setAssignSaving(true);
+    try {
+      const updated = await assignWorkOrder(wo.id, assigneeId);
+      onUpdated(updated);
+    } finally {
+      setAssignSaving(false);
     }
   };
 
@@ -433,10 +457,34 @@ function WODetail({ wo, onClose, onUpdated }: { wo: WorkOrder; onClose: () => vo
             </button>
           )}
 
+          {/* PM badge */}
+          {wo.isPM && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: '#EEF2FF', borderRadius: 8, border: '1px solid #C7D2FE', fontSize: 13, color: '#1B4FD8', fontWeight: 500 }}>
+              <Icons.maintenance size={16} />
+              Preventive Maintenance work order
+            </div>
+          )}
+
           {/* Meta grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <div style={{ fontSize: 11.5, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 5 }}>Assignee</div>
+              {isSupervisor && wo.status !== 'COMPLETED' ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select className="input" value={assigneeId} onChange={e => setAssigneeId(e.target.value)} style={{ flex: 1 }}>
+                    {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
+                  </select>
+                  <Btn size="sm" variant="secondary" onClick={handleAssign} disabled={assignSaving || assigneeId === wo.assigneeId}>
+                    {assignSaving ? '…' : 'Assign'}
+                  </Btn>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13.5, fontWeight: 500 }}>
+                  <Avatar name={wo.assignee?.name || '?'} size={20} />{wo.assignee?.name}
+                </div>
+              )}
+            </div>
             {([
-              ['Assignee', <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Avatar name={wo.assignee?.name || '?'} size={20} />{wo.assignee?.name}</span>],
               ['Priority', <Badge status={wo.priority} />],
               ['Due', wo.dueDate?.split(',')[1] || wo.dueDate || '—'],
               ['Est. / logged', `${wo.estimatedHrs || '—'} / ${wo.loggedHrs || '0'} hrs`],
@@ -587,14 +635,18 @@ function WODetail({ wo, onClose, onUpdated }: { wo: WorkOrder; onClose: () => vo
           ) : wo.status === 'OPEN' ? (
             <>
               <Btn variant="ghost" size="lg" onClick={onClose}>Close</Btn>
-              <Btn size="lg" block icon="play" onClick={handleStartWork}>Start work</Btn>
+              {(isSupervisor || isMyWO) && (
+                <Btn size="lg" block icon="play" onClick={handleStartWork}>Start work</Btn>
+              )}
             </>
           ) : (
             <>
               <Btn variant="ghost" size="lg" onClick={onClose}>Close</Btn>
-              <Btn size="lg" block icon={pct === 100 ? 'checkcircle' : 'check'} onClick={handleComplete} disabled={completing}>
-                {completing ? 'Completing…' : pct === 100 ? 'Complete work order' : 'Save progress'}
-              </Btn>
+              {(isSupervisor || isMyWO) && (
+                <Btn size="lg" block icon={pct === 100 ? 'checkcircle' : 'check'} onClick={handleComplete} disabled={completing}>
+                  {completing ? 'Completing…' : pct === 100 ? 'Complete work order' : 'Save progress'}
+                </Btn>
+              )}
             </>
           )}
         </div>

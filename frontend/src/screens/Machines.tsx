@@ -368,7 +368,7 @@ export function MachineDetail({ id }: { id: string }) {
   if (!machine) return <div className="content-pad"><p>Machine not found.</p></div>;
 
   const mtickets = tickets.filter(t => t.machineId === machine.id);
-  const mparts = parts.filter(p => p.machineId === machine.id);
+  const mparts = parts.filter(p => p.machines?.some(m => m.machineId === machine.id));
   const openCount = mtickets.filter(t => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status)).length;
   const photos = machine.photos ?? [];
 

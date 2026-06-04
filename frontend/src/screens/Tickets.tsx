@@ -1,33 +1,63 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../store';
 import { Part } from '../types';
 import { WOForm } from './WorkOrders';
-import { Badge, Btn, Photo, Avatar, UploadZone } from '../components/ui';
+import { Badge, Btn, Photo, Avatar } from '../components/ui';
 import { Icons } from '../components/icons';
 import { PageTitle } from '../components/shared';
 
-/* ============ RAISE A TICKET ============ */
+/* ============ RAISE A BREAKDOWN ============ */
 export function RaiseTicket() {
-  const { nav, createTicket, machines, units } = useStore();
+  const { nav, createTicket, machines, units, me } = useStore();
+
+  // Step 1: category
+  const [category, setCategory] = useState<'Machine' | 'Development' | 'Other' | null>(null);
+
+  // Step 2: machine (only for Machine category)
   const [unit, setUnit] = useState<string | null>(null);
   const [machineId, setMachineId] = useState<string | null>(null);
   const [q, setQ] = useState('');
+
+  // Step 3: severity + type
   const [sev, setSev] = useState<string | null>(null);
   const [type, setType] = useState('Breakdown');
+
+  // Step 4: description + photo
   const [desc, setDesc] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [done, setDone] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const unitMachines = machines.filter(m => m.unitId === unit && m.name.toLowerCase().includes(q.toLowerCase()));
   const machine = machines.find(m => m.id === machineId);
-  const canSubmit = machineId && sev && desc.trim();
+
+  const machineStepDone = category === 'Machine' ? !!machineId : true;
+  const canSubmit = category && sev && desc.trim() && machineStepDone;
+
+  const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPhotoFile(file);
+    const reader = new FileReader();
+    reader.onload = ev => setPhotoPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
 
   const submit = async () => {
-    if (!machineId || !sev) return;
+    if (!category || !sev) return;
     setLoading(true);
     try {
-      const id = await createTicket({ machineId, severity: sev, type, desc });
+      const id = await createTicket({
+        machineId: category === 'Machine' ? machineId : null,
+        category,
+        severity: sev,
+        type,
+        desc,
+      });
       setDone(id);
     } finally {
       setLoading(false);
@@ -41,14 +71,14 @@ export function RaiseTicket() {
           <div style={{ width: 72, height: 72, borderRadius: 99, background: '#F0FDF4', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
             <Icons.checkcircle size={42} style={{ color: '#16A34A' }} />
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700 }}>Ticket raised</h1>
+          <h1 style={{ fontSize: 24, fontWeight: 700 }}>Breakdown raised</h1>
           <div className="mono" style={{ fontSize: 20, color: '#1B4FD8', fontWeight: 500, margin: '10px 0 6px' }}>{done}</div>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 14, color: '#16A34A', background: '#F0FDF4', padding: '7px 14px', borderRadius: 99, marginTop: 6 }}>
-            <Icons.whatsapp size={17} /> WhatsApp sent to 3 people
+            <Icons.whatsapp size={17} /> WhatsApp sent to supervisors
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 28 }}>
-            <Btn variant="secondary" size="lg" block onClick={() => { const id = done; setDone(null); nav('ticketDetail', { id }); }}>View ticket</Btn>
-            <Btn size="lg" block onClick={() => { setDone(null); setUnit(null); setMachineId(null); setSev(null); setDesc(''); }}>Raise another</Btn>
+            <Btn variant="secondary" size="lg" block onClick={() => { const id = done; setDone(null); nav('ticketDetail', { id }); }}>View breakdown</Btn>
+            <Btn size="lg" block onClick={() => { setDone(null); setCategory(null); setUnit(null); setMachineId(null); setSev(null); setDesc(''); setPhotoFile(null); setPhotoPreview(null); }}>Raise another</Btn>
           </div>
           <button className="btn btn-ghost btn-md" style={{ marginTop: 14 }} onClick={() => nav('dashboard')}>Back to dashboard</button>
         </div>
@@ -63,6 +93,12 @@ export function RaiseTicket() {
     { k: 'low', label: 'Low', sub: 'Can wait', dot: '#6B7280', bg: '#F9FAFB', bd: '#E5E7EB' },
   ];
 
+  const categories = [
+    { k: 'Machine' as const, icon: 'gear', label: 'Machine', sub: 'Equipment breakdown or fault' },
+    { k: 'Development' as const, icon: 'workorder', label: 'Development', sub: 'Improvement or new work' },
+    { k: 'Other' as const, icon: 'alert', label: 'Other', sub: 'Not machine-related' },
+  ];
+
   return (
     <div className="flow">
       <div className="flow-head">
@@ -72,44 +108,69 @@ export function RaiseTicket() {
       </div>
       <div className="flow-body">
         <div style={{ maxWidth: 560, margin: '0 auto', padding: '20px 16px 24px', display: 'flex', flexDirection: 'column', gap: 26 }}>
-          <section>
-            <div className="flow-step">Which machine?</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {units.map(u => (
-                <button key={u.id} onClick={() => { setUnit(u.id); setMachineId(null); }}
-                  style={{ textAlign: 'left', padding: '15px 18px', borderRadius: 12, border: '1.5px solid ' + (unit === u.id ? '#1B4FD8' : '#E2E8F0'), background: unit === u.id ? '#1B4FD8' : '#fff', color: unit === u.id ? '#fff' : '#0F172A', fontWeight: 600, fontSize: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span>{u.code}{u.unitNo ? ` (${u.unitNo})` : ''}</span>
-                  <span style={{ fontSize: 13, fontWeight: 400, opacity: 0.8 }}>{u._count?.machines ?? 0} machines</span>
-                </button>
-              ))}
-            </div>
 
-            {unit && (
-              <div className="fade-in" style={{ marginTop: 14 }}>
-                <div className="searchbox" style={{ marginBottom: 10 }}>
-                  <Icons.search size={17} style={{ color: '#94A3B8' }} />
-                  <input placeholder="Search machine…" value={q} onChange={e => setQ(e.target.value)} />
-                </div>
-                <div style={{ border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden', maxHeight: 248, overflowY: 'auto' }}>
-                  {unitMachines.map((m, i) => {
-                    const photo = m.photos?.[0]?.url ?? null;
-                    return (
-                      <button key={m.id} onClick={() => setMachineId(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '10px 14px', background: machineId === m.id ? '#EEF2FF' : '#fff', borderBottom: i < unitMachines.length - 1 ? '1px solid #F1F5F9' : 'none', cursor: 'pointer' }}>
-                        <Photo src={photo} kind="machine" radius={8} style={{ width: 40, height: 40, flex: '0 0 40px' }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
-                          <div style={{ fontSize: 12, color: '#64748B' }}>{units.find(u => u.id === m.unitId)?.code} / {m.section}</div>
-                        </div>
-                        {machineId === m.id && <Icons.checkcircle size={20} style={{ color: '#1B4FD8' }} />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          {/* Step 1: Category */}
+          <section>
+            <div className="flow-step">What type of breakdown?</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {categories.map(c => {
+                const I = Icons[c.icon] || Icons.alert;
+                return (
+                  <button key={c.k} onClick={() => { setCategory(c.k); setMachineId(null); setUnit(null); }}
+                    style={{ textAlign: 'left', padding: '14px 18px', borderRadius: 12, border: '1.5px solid ' + (category === c.k ? '#1B4FD8' : '#E2E8F0'), background: category === c.k ? '#EEF2FF' : '#fff', display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <I size={22} style={{ color: category === c.k ? '#1B4FD8' : '#94A3B8', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: category === c.k ? '#1B4FD8' : '#0F172A' }}>{c.label}</div>
+                      <div style={{ fontSize: 12.5, color: '#64748B' }}>{c.sub}</div>
+                    </div>
+                    {category === c.k && <Icons.checkcircle size={20} style={{ color: '#1B4FD8', marginLeft: 'auto' }} />}
+                  </button>
+                );
+              })}
+            </div>
           </section>
 
-          {machineId && (
+          {/* Step 2: Machine selection (only for Machine category) */}
+          {category === 'Machine' && (
+            <section className="fade-in">
+              <div className="flow-step">Which machine?</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {units.map(u => (
+                  <button key={u.id} onClick={() => { setUnit(u.id); setMachineId(null); }}
+                    style={{ textAlign: 'left', padding: '15px 18px', borderRadius: 12, border: '1.5px solid ' + (unit === u.id ? '#1B4FD8' : '#E2E8F0'), background: unit === u.id ? '#1B4FD8' : '#fff', color: unit === u.id ? '#fff' : '#0F172A', fontWeight: 600, fontSize: 15, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>{u.code}{u.unitNo ? ` (${u.unitNo})` : ''}</span>
+                    <span style={{ fontSize: 13, fontWeight: 400, opacity: 0.8 }}>{u._count?.machines ?? 0} machines</span>
+                  </button>
+                ))}
+              </div>
+              {unit && (
+                <div className="fade-in" style={{ marginTop: 14 }}>
+                  <div className="searchbox" style={{ marginBottom: 10 }}>
+                    <Icons.search size={17} style={{ color: '#94A3B8' }} />
+                    <input placeholder="Search machine…" value={q} onChange={e => setQ(e.target.value)} />
+                  </div>
+                  <div style={{ border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden', maxHeight: 248, overflowY: 'auto' }}>
+                    {unitMachines.map((m, i) => {
+                      const photo = m.photos?.[0]?.url ?? null;
+                      return (
+                        <button key={m.id} onClick={() => setMachineId(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', padding: '10px 14px', background: machineId === m.id ? '#EEF2FF' : '#fff', borderBottom: i < unitMachines.length - 1 ? '1px solid #F1F5F9' : 'none', cursor: 'pointer' }}>
+                          <Photo src={photo} kind="machine" radius={8} style={{ width: 40, height: 40, flex: '0 0 40px' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
+                            <div style={{ fontSize: 12, color: '#64748B' }}>{units.find(u => u.id === m.unitId)?.code} / {m.section}</div>
+                          </div>
+                          {machineId === m.id && <Icons.checkcircle size={20} style={{ color: '#1B4FD8' }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Step 3: Severity + type */}
+          {category && machineStepDone && (
             <section className="fade-in">
               <div className="flow-step">How bad is it?</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -128,25 +189,52 @@ export function RaiseTicket() {
             </section>
           )}
 
-          {machineId && sev && (
+          {/* Step 4: Description + Photo */}
+          {category && machineStepDone && sev && (
             <section className="fade-in">
               <div className="flow-step">What happened?</div>
               <textarea className="textarea" style={{ minHeight: 120, fontSize: 15 }} placeholder="Describe what happened…" value={desc} onChange={e => setDesc(e.target.value)} />
-              <div style={{ marginTop: 12 }}><UploadZone note="Attach a photo (optional) · max 5MB" compact /></div>
+
+              {/* Photo capture — works on mobile (camera) and desktop (file picker) */}
+              <div style={{ marginTop: 12 }}>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handlePhoto}
+                />
+                {photoPreview ? (
+                  <div style={{ position: 'relative', width: '100%', maxWidth: 320 }}>
+                    <img src={photoPreview} alt="Preview" style={{ width: '100%', borderRadius: 10, border: '1px solid #E2E8F0' }} />
+                    <button onClick={() => { setPhotoFile(null); setPhotoPreview(null); }}
+                      style={{ position: 'absolute', top: 8, right: 8, width: 28, height: 28, borderRadius: 99, background: 'rgba(0,0,0,0.5)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Icons.close size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <button onClick={() => fileInputRef.current?.click()}
+                    style={{ width: '100%', border: '2px dashed #E2E8F0', borderRadius: 12, padding: '18px 24px', background: '#F8FAFC', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <Icons.camera size={24} style={{ color: '#94A3B8' }} />
+                    <div style={{ fontSize: 14, color: '#6B7280' }}>Take photo or attach image</div>
+                    <div style={{ fontSize: 12, color: '#94A3B8' }}>JPEG, PNG or WebP · max 5MB · optional</div>
+                  </button>
+                )}
+              </div>
             </section>
           )}
         </div>
       </div>
       <div className="flow-foot">
         <div style={{ maxWidth: 560, margin: '0 auto' }}>
-          <Btn size="xl" block disabled={!canSubmit || loading} onClick={submit}>{loading ? 'Submitting…' : 'Submit ticket'}</Btn>
+          <Btn size="xl" block disabled={!canSubmit || loading} onClick={submit}>{loading ? 'Submitting…' : 'Submit breakdown'}</Btn>
         </div>
       </div>
     </div>
   );
 }
 
-/* ============ TICKET LIST ============ */
+/* ============ BREAKDOWN LIST ============ */
 export function TicketList() {
   const { nav, tickets } = useStore();
   const [filter, setFilter] = useState('open');
@@ -161,7 +249,7 @@ export function TicketList() {
 
   return (
     <div className="content-pad fade-in">
-      <PageTitle title="Tickets" right={<Btn size="lg" icon="plus" onClick={() => nav('raise')}>Raise ticket</Btn>} />
+      <PageTitle title="Breakdowns" right={<Btn size="lg" icon="plus" onClick={() => nav('raise')}>Report breakdown</Btn>} />
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {filters.map(f => (
           <button key={f.k} className={'chip ' + (filter === f.k ? 'on' : '')} onClick={() => setFilter(f.k)}>
@@ -179,9 +267,14 @@ export function TicketList() {
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="mono" style={{ fontSize: 12, color: '#64748B' }}>{t.ticketNum}</span>
                   <Badge status={t.severity} /><Badge status={t.status} />
+                  {t.category && t.category !== 'Machine' && (
+                    <span className="badge b-neut">{t.category}</span>
+                  )}
                 </div>
                 <div style={{ fontWeight: 600, fontSize: 14.5, marginTop: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
-                <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>{t.machine?.name} · {t.assignedTo ? t.assignedTo.name : 'unassigned'}</div>
+                <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>
+                  {t.machine ? t.machine.name : t.category} · {t.assignedTo ? t.assignedTo.name : 'unassigned'}
+                </div>
               </div>
               <Icons.chevright size={20} style={{ color: '#94A3B8', flex: '0 0 20px' }} />
             </button>
@@ -192,26 +285,30 @@ export function TicketList() {
   );
 }
 
-/* ============ TICKET DETAIL ============ */
+/* ============ BREAKDOWN DETAIL ============ */
 export function TicketDetail({ id }: { id: string }) {
   const S = useStore();
-  const { nav, tickets, parts, workOrders } = S;
+  const { nav, tickets, parts, workOrders, me } = S;
   const t = tickets.find(x => x.ticketNum === id || x.id === id) || tickets[0];
   const [resolveOpen, setResolveOpen] = useState(false);
   const [raiseWO, setRaiseWO] = useState(false);
   const [comment, setComment] = useState('');
   const linkedWOs = workOrders.filter(w => w.ticketId === t?.id);
 
+  // Admin/supervisor can acknowledge
+  const canAcknowledge = me && ['Super Admin', 'Floor Supervisor', 'Shift Supervisor'].includes(me.role);
+
   const tlColor: Record<string, string> = { crit: '#DC2626', high: '#C2410C', warn: '#D97706', ok: '#16A34A', info: '#1D4ED8', neut: '#6B7280' };
 
-  if (!t) return <div className="content-pad"><p>Ticket not found.</p></div>;
+  if (!t) return <div className="content-pad"><p>Breakdown not found.</p></div>;
 
   const photo = t.machine?.photos?.[0]?.url ?? null;
 
   const actions = () => {
     if (t.status === 'OPEN') return <>
-      <Btn icon="check" onClick={() => S.acknowledgeTicket(t.id)}>Acknowledge</Btn>
-      <Btn variant="secondary" icon="user" onClick={() => S.acknowledgeTicket(t.id)}>Assign to me</Btn>
+      {canAcknowledge && <Btn icon="check" onClick={() => S.acknowledgeTicket(t.id)}>Acknowledge</Btn>}
+      {canAcknowledge && <Btn variant="secondary" icon="user" onClick={() => S.acknowledgeTicket(t.id)}>Assign to me</Btn>}
+      {!canAcknowledge && <span style={{ fontSize: 13, color: '#94A3B8' }}>Awaiting supervisor acknowledgement</span>}
     </>;
     if (t.status === 'ACKNOWLEDGED') return <>
       <Btn icon="play" onClick={() => S.startWork(t.id)}>Start work</Btn>
@@ -232,17 +329,22 @@ export function TicketDetail({ id }: { id: string }) {
         <Badge status={t.severity} /><Badge status={t.status} />
       </div>
 
-      <button onClick={() => nav('machineDetail', { id: t.machineId })} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 16 }}>
-        <Photo src={photo} kind="machine" radius={8} style={{ width: 56, height: 56, flex: '0 0 56px' }} />
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 600, fontSize: 15 }}>{t.machine?.name}</div>
-          <div className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{t.machine?.code}</div>
-        </div>
-        <Icons.chevright size={20} style={{ color: '#94A3B8' }} />
-      </button>
+      {t.machine && (
+        <button onClick={() => nav('machineDetail', { id: t.machineId })} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 16 }}>
+          <Photo src={photo} kind="machine" radius={8} style={{ width: 56, height: 56, flex: '0 0 56px' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{t.machine.name}</div>
+            <div className="mono" style={{ fontSize: 12.5, color: '#64748B' }}>{t.machine.code}</div>
+          </div>
+          <Icons.chevright size={20} style={{ color: '#94A3B8' }} />
+        </button>
+      )}
 
       <div className="card card-pad" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}><span className="badge b-neut">{t.type}</span></div>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+          <span className="badge b-neut">{t.type}</span>
+          {t.category && t.category !== 'Machine' && <span className="badge b-neut">{t.category}</span>}
+        </div>
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>{t.title}</h2>
         <p style={{ fontSize: 14, color: '#475569', lineHeight: 1.55 }}>{t.description}</p>
         <div className="divider" style={{ margin: '16px 0' }} />
@@ -342,7 +444,7 @@ export function TicketDetail({ id }: { id: string }) {
       {resolveOpen && <ResolveSheet t={t} onClose={() => setResolveOpen(false)} />}
       {raiseWO && (
         <WOForm
-          prefill={{ machineId: t.machineId, ticketId: t.id, ticketNum: t.ticketNum, title: `Repair: ${t.machine?.name}` }}
+          prefill={{ machineId: t.machineId ?? undefined, ticketId: t.id, ticketNum: t.ticketNum, title: `Repair: ${t.machine?.name ?? t.category}` }}
           onClose={() => setRaiseWO(false)}
         />
       )}
@@ -353,18 +455,23 @@ export function TicketDetail({ id }: { id: string }) {
 function ResolveSheet({ t, onClose }: { t: any; onClose: () => void }) {
   const S = useStore();
   const [note, setNote] = useState('');
-  const [usePart, setUsePart] = useState(true);
-  const part = S.parts.find((p: Part) => p.machineId === t.machineId) || S.parts[0];
+  const [usePart, setUsePart] = useState(false);
+  // Get parts associated with this machine (if any)
+  const machineParts = t.machineId
+    ? S.parts.filter((p: Part) => p.machines?.some((m: any) => m.machineId === t.machineId))
+    : [];
+  const part = machineParts[0] || null;
+
   return createPortal(
     <>
       <div className="scrim" onClick={onClose} />
       <div className="slideover">
         <div className="so-head">
-          <h3 style={{ fontSize: 16, fontWeight: 600, flex: 1 }}>Resolve ticket</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 600, flex: 1 }}>Resolve breakdown</h3>
           <button className="btn btn-ghost" style={{ padding: 6 }} onClick={onClose}><Icons.close size={20} /></button>
         </div>
         <div className="so-body" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-          <div style={{ fontSize: 13, color: '#64748B' }}>Resolving <b className="mono" style={{ color: '#0F172A' }}>{t.ticketNum}</b> on {t.machine?.name}</div>
+          <div style={{ fontSize: 13, color: '#64748B' }}>Resolving <b className="mono" style={{ color: '#0F172A' }}>{t.ticketNum}</b>{t.machine ? ` on ${t.machine.name}` : ''}</div>
           <label className="field">
             <span style={{ display: 'block', fontSize: 14, fontWeight: 500, color: '#374151', marginBottom: 6 }}>Resolution note</span>
             <textarea className="textarea" placeholder="What did you do to fix it?" value={note} onChange={e => setNote(e.target.value)} />

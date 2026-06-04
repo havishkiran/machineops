@@ -114,25 +114,59 @@ async function main() {
     }
   }
 
-  // Create parts
+  // Create parts (no machineId — use PartMachine junction)
   const partsData = [
-    { id: 'p1', name: 'A30 Belt', machineId: 'm3', qty: 2, minQty: 5, status: StockStatus.LOW_STOCK, spec: 'A-section, 1320mm', supplier: 'Fenner India', cost: 480, criticality: 'High' },
-    { id: 'p2', name: 'Nylon Brush', machineId: 'm6', qty: 0, minQty: 2, status: StockStatus.OUT, spec: 'Ø80mm, 5-row', supplier: 'Perfect Brushes', cost: 1250, criticality: 'Critical' },
-    { id: 'p3', name: 'Drive Belt', machineId: 'm8', qty: 8, minQty: 3, status: StockStatus.OK, spec: 'B-section, 1700mm', supplier: 'Fenner India', cost: 620, criticality: 'Medium' },
-    { id: 'p4', name: 'Drive Chain', machineId: 'm1', qty: 8, minQty: 3, status: StockStatus.OK, spec: '1/2" pitch, 80 links', supplier: 'Diamond Chain', cost: 1840, criticality: 'Medium' },
-    { id: 'p5', name: 'Ball Bearing 6204', machineId: 'm2', qty: 3, minQty: 6, status: StockStatus.LOW_STOCK, spec: '6204-2RS, 20×47', supplier: 'SKF', cost: 210, criticality: 'High' },
-    { id: 'p6', name: 'Air Filter Element', machineId: 'm5', qty: 1, minQty: 4, status: StockStatus.LOW_STOCK, spec: 'PD-220, pleated', supplier: 'Atlas Copco', cost: 2400, criticality: 'High' },
-    { id: 'p7', name: 'Spray Nozzle', machineId: 'm1', qty: 0, minQty: 3, status: StockStatus.OUT, spec: '1.2mm brass', supplier: 'Spraying Systems', cost: 340, criticality: 'Critical' },
-    { id: 'p8', name: 'Timing Belt', machineId: 'm4', qty: 6, minQty: 2, status: StockStatus.OK, spec: 'HTD 5M, 800mm', supplier: 'Gates India', cost: 560, criticality: 'Low' },
-    { id: 'p9', name: 'Solenoid Valve', machineId: 'm10', qty: 12, minQty: 4, status: StockStatus.OK, spec: '1/4" 24VDC', supplier: 'Festo', cost: 1890, criticality: 'Medium' },
-    { id: 'p10', name: 'Needle Set', machineId: 'm11', qty: 4, minQty: 10, status: StockStatus.LOW_STOCK, spec: 'DBx1 #14', supplier: 'Groz-Beckert', cost: 95, criticality: 'Low' },
+    { id: 'p1', name: 'A30 Belt', partNumber: 'PRT-2025-0001', qty: 2, minQty: 5, status: StockStatus.LOW_STOCK, spec: 'A-section, 1320mm', supplier: 'Fenner India', vendorName: 'Fenner India Ltd', vendorPhone: '+91 422 2220000', category: 'Belt', cost: 480, criticality: 'High' },
+    { id: 'p2', name: 'Nylon Brush', partNumber: 'PRT-2025-0002', qty: 0, minQty: 2, status: StockStatus.OUT, spec: 'Ø80mm, 5-row', supplier: 'Perfect Brushes', vendorName: 'Perfect Brushes Co.', vendorPhone: '+91 44 2345678', category: 'Other', cost: 1250, criticality: 'Critical' },
+    { id: 'p3', name: 'Drive Belt', partNumber: 'PRT-2025-0003', qty: 8, minQty: 3, status: StockStatus.OK, spec: 'B-section, 1700mm', supplier: 'Fenner India', vendorName: 'Fenner India Ltd', vendorPhone: '+91 422 2220000', category: 'Belt', cost: 620, criticality: 'Medium' },
+    { id: 'p4', name: 'Drive Chain', partNumber: 'PRT-2025-0004', qty: 8, minQty: 3, status: StockStatus.OK, spec: '1/2" pitch, 80 links', supplier: 'Diamond Chain', vendorName: 'Diamond Chain Mfg', vendorPhone: '+91 80 2345678', category: 'Chain', cost: 1840, criticality: 'Medium' },
+    { id: 'p5', name: 'Ball Bearing 6204', partNumber: 'PRT-2025-0005', qty: 3, minQty: 6, status: StockStatus.LOW_STOCK, spec: '6204-2RS, 20×47', supplier: 'SKF', vendorName: 'SKF India', vendorPhone: '+91 20 6602000', category: 'Bearing', cost: 210, criticality: 'High' },
+    { id: 'p6', name: 'Air Filter Element', partNumber: 'PRT-2025-0006', qty: 1, minQty: 4, status: StockStatus.LOW_STOCK, spec: 'PD-220, pleated', supplier: 'Atlas Copco', vendorName: 'Atlas Copco India', vendorPhone: '+91 80 2294000', category: 'Filter', cost: 2400, criticality: 'High' },
+    { id: 'p7', name: 'Spray Nozzle', partNumber: 'PRT-2025-0007', qty: 0, minQty: 3, status: StockStatus.OUT, spec: '1.2mm brass', supplier: 'Spraying Systems', vendorName: 'Spraying Systems India', vendorPhone: '+91 44 2890000', category: 'Other', cost: 340, criticality: 'Critical' },
+    { id: 'p8', name: 'Timing Belt', partNumber: 'PRT-2025-0008', qty: 6, minQty: 2, status: StockStatus.OK, spec: 'HTD 5M, 800mm', supplier: 'Gates India', vendorName: 'Gates India Pvt Ltd', vendorPhone: '+91 80 6720000', category: 'Belt', cost: 560, criticality: 'Low' },
+    { id: 'p9', name: 'Solenoid Valve', partNumber: 'PRT-2025-0009', qty: 12, minQty: 4, status: StockStatus.OK, spec: '1/4" 24VDC', supplier: 'Festo', vendorName: 'Festo India', vendorPhone: '+91 80 2294444', category: 'Valve', cost: 1890, criticality: 'Medium' },
+    { id: 'p10', name: 'Needle Set', partNumber: 'PRT-2025-0010', qty: 4, minQty: 10, status: StockStatus.LOW_STOCK, spec: 'DBx1 #14', supplier: 'Groz-Beckert', vendorName: 'Groz-Beckert India', vendorPhone: '+91 11 4160000', category: 'Other', cost: 95, criticality: 'Low' },
   ];
 
+  // machine associations for each part: partId → [machineId, ...]
+  const partMachineMap: Record<string, string[]> = {
+    p1: ['m3', 'm8'],    // A30 Belt — used on Gross Pack 3 and Dipping Machine 2
+    p2: ['m6'],           // Nylon Brush — Halfline 1
+    p3: ['m8', 'm1'],    // Drive Belt — Dipping 2 and Dipping 3
+    p4: ['m1'],           // Drive Chain — Dipping Machine 3
+    p5: ['m2', 'm9'],    // Ball Bearing — Inner Machine 3 and Winding Machine 5
+    p6: ['m5'],           // Air Filter — Compressor Unit 1
+    p7: ['m1'],           // Spray Nozzle — Dipping Machine 3
+    p8: ['m4'],           // Timing Belt — Dozen Machine 2
+    p9: ['m10'],          // Solenoid Valve — Control Panel A
+    p10: ['m11'],         // Needle Set — Sewing Line 4
+  };
+
   for (const p of partsData) {
+    const partRecord = { ...p, orgId: org.id };
     await prisma.part.upsert({
       where: { id: p.id },
+      update: partRecord,
+      create: partRecord,
+    });
+    // Create machine associations
+    const machineIds = partMachineMap[p.id] || [];
+    for (const machineId of machineIds) {
+      await prisma.partMachine.upsert({
+        where: { partId_machineId: { partId: p.id, machineId } },
+        update: {},
+        create: { partId: p.id, machineId },
+      });
+    }
+  }
+
+  // Seed default part categories
+  const categoryNames = ['Belt', 'Chain', 'Bearing', 'Filter', 'Valve', 'Shaft', 'Gear', 'Seal', 'Other'];
+  for (const name of categoryNames) {
+    await prisma.partCategory.upsert({
+      where: { name_orgId: { name, orgId: org.id } },
       update: {},
-      create: { ...p, orgId: org.id },
+      create: { name, orgId: org.id },
     });
   }
 

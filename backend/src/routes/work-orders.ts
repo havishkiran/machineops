@@ -3,10 +3,13 @@ import { prisma } from '../lib/prisma';
 
 const router = Router();
 
+const SUPERVISOR_ROLES = ['Super Admin', 'Floor Supervisor', 'Shift Supervisor'];
+
 const WO_INCLUDE = {
   machine: { include: { photos: { where: { isPrimary: true }, take: 1 } } },
   assignee: true,
   ticket: true,
+  pmTask: true,
   steps: { orderBy: { sortOrder: 'asc' as const } },
   parts: { include: { part: { select: { id: true, name: true, qty: true, status: true, photoUrl: true } } } },
   labor: { include: { user: true } },
@@ -48,6 +51,21 @@ router.post('/', async (req: Request, res: Response) => {
     include: WO_INCLUDE,
   });
   res.status(201).json(order);
+});
+
+// POST /api/work-orders/:id/assign  — supervisor only
+router.post('/:id/assign', async (req: Request, res: Response) => {
+  const user = (req as any).user;
+  if (!user || !SUPERVISOR_ROLES.includes(user.role)) {
+    return res.status(403).json({ error: 'Only supervisors and admins can assign work orders.' });
+  }
+  const { assigneeId } = req.body;
+  const order = await prisma.workOrder.update({
+    where: { id: req.params.id },
+    data: { assigneeId },
+    include: WO_INCLUDE,
+  });
+  res.json(order);
 });
 
 // PUT /api/work-orders/:id  — also handles completion with auto-deduction

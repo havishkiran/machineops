@@ -1,0 +1,16 @@
+name change for ticket -> Breakdown
+
+photo capture via mobile
+
+we need to have checklist for every machine , 
+when pm maintance gone hit, it need to create a workorder by auto 1 or 2 days prior - check list based on machine need to be shown  spare needs to be machine specfic and ctiticality column in spare parts screen, vender name and phone number - part number auto generate - machine selection in spare parts needs to be unit based - spare part available location by unit  - type of spare part (option to group spare eg : belt, shaft etc can be drop down or we can add new 	)
+
+
+ticket is not gone be always based on machine so we need to have devlopment or machine or other as first option
+
+addition of spare part in machine is not working - image addition needs to via mobile or pick from local file , link based on needed
+
+
+for now only admin needs to have option to acknowladge the ticket , but work order can be based on roles - so we need to think of admin based opotion to manage this who can take what action
+
+
