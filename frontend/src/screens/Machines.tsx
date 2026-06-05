@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { Machine, CustomField } from '../types';
 import { Badge, Btn, Photo, QRBox, EmptyState, SlideOver } from '../components/ui';
@@ -355,8 +355,8 @@ export function MachineDetail({ id }: { id: string }) {
   const [activePhoto, setActivePhoto] = useState(0);
   const [showEdit, setShowEdit] = useState(false);
   const [machine, setMachine] = useState(m);
-  const [addingPhotoUrl, setAddingPhotoUrl] = useState('');
-  const [showAddPhoto, setShowAddPhoto] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Sync if store updates (including photo changes)
   useEffect(() => {
@@ -377,11 +377,17 @@ export function MachineDetail({ id }: { id: string }) {
     if (activePhoto >= idx && activePhoto > 0) setActivePhoto(activePhoto - 1);
   };
 
-  const handleAddPhoto = async () => {
-    if (!addingPhotoUrl.trim()) return;
-    await addMachinePhoto(machine.id, addingPhotoUrl.trim(), photos.length === 0);
-    setAddingPhotoUrl('');
-    setShowAddPhoto(false);
+  const handleAddPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      await addMachinePhoto(machine.id, reader.result as string, photos.length === 0);
+      setUploadingPhoto(false);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const tabs = [
@@ -421,27 +427,14 @@ export function MachineDetail({ id }: { id: string }) {
               </div>
             ))}
             {/* Add photo */}
-            {!showAddPhoto ? (
-              <button onClick={() => setShowAddPhoto(true)} style={{ flex: '0 0 80px', height: 80, border: '2px dashed #E2E8F0', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, color: '#94A3B8', cursor: 'pointer' }}>
-                <Icons.camera size={20} /><span style={{ fontSize: 10 }}>Add</span>
-              </button>
-            ) : (
-              <div style={{ flex: '0 0 220px', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <input
-                  className="input"
-                  style={{ fontSize: 12, padding: '5px 8px' }}
-                  placeholder="Paste image URL…"
-                  value={addingPhotoUrl}
-                  onChange={e => setAddingPhotoUrl(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleAddPhoto(); if (e.key === 'Escape') { setShowAddPhoto(false); setAddingPhotoUrl(''); } }}
-                  autoFocus
-                />
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Btn size="sm" onClick={handleAddPhoto} disabled={!addingPhotoUrl.trim()}>Add</Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => { setShowAddPhoto(false); setAddingPhotoUrl(''); }}>Cancel</Btn>
-                </div>
-              </div>
-            )}
+            <button
+              onClick={() => photoInputRef.current?.click()}
+              disabled={uploadingPhoto}
+              style={{ flex: '0 0 80px', height: 80, border: '2px dashed #E2E8F0', borderRadius: 8, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, color: '#94A3B8', cursor: 'pointer' }}>
+              <Icons.camera size={20} />
+              <span style={{ fontSize: 10 }}>{uploadingPhoto ? 'Saving…' : 'Add'}</span>
+            </button>
+            <input ref={photoInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAddPhoto} />
           </div>
         </div>
         <div className="card card-pad">
