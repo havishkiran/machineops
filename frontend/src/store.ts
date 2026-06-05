@@ -169,6 +169,18 @@ export const useStore = create<StoreState>((set, get) => ({
       ]);
       set({ machines, tickets, parts, pmTasks, workOrders, org: settings.org, customFields, units, users, partCategories, loading: false });
 
+      // Restore `me` on page refresh — login sets it, but it's null after a hard reload
+      if (!get().me) {
+        const token = getToken();
+        if (token) {
+          try {
+            const { userId } = JSON.parse(atob(token.split('.')[1]));
+            const found = (users as any[]).find(u => u.id === userId);
+            if (found) set({ me: found });
+          } catch { /* ignore malformed token */ }
+        }
+      }
+
       // Check for PM tasks due soon — show in-app notification toasts
       try {
         const dueSoon = await api.pmTasks.dueSoon();

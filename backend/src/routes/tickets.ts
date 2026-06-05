@@ -66,41 +66,49 @@ async function buildNotifyList(severity: string): Promise<{ text: string; recipi
 
 // POST /api/tickets
 router.post('/', async (req: Request, res: Response) => {
-  const { machineId, category = 'Machine', severity, type, title, description, raisedById } = req.body;
+  try {
+    const { machineId, category = 'Machine', severity, type, title, description, raisedById } = req.body;
 
-  // Generate ticket number
-  const count = await prisma.ticket.count();
-  const ticketNum = `TKT-2025-${String(count + 43).padStart(4, '0')}`;
-  const hhmm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    if (!raisedById) return res.status(400).json({ error: 'raisedById is required' });
+    if (!severity || !type || !title || !description) return res.status(400).json({ error: 'severity, type, title and description are required' });
 
-  const ticket = await prisma.ticket.create({
-    data: {
-      ticketNum,
-      machineId: machineId || null,
-      category,
-      severity,
-      type,
-      title,
-      description,
-      raisedById,
-      status: TicketStatus.OPEN,
-    },
-    include: TICKET_INCLUDE,
-  });
+    // Generate ticket number
+    const count = await prisma.ticket.count();
+    const ticketNum = `TKT-2025-${String(count + 43).padStart(4, '0')}`;
+    const hhmm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
-  // Build notification recipient list based on severity routing rules
-  const { text: notifyText } = await buildNotifyList(severity);
+    const ticket = await prisma.ticket.create({
+      data: {
+        ticketNum,
+        machineId: machineId || null,
+        category,
+        severity,
+        type,
+        title,
+        description,
+        raisedById,
+        status: TicketStatus.OPEN,
+      },
+      include: TICKET_INCLUDE,
+    });
 
-  // Add initial timeline entries
-  await prisma.ticketTimeline.createMany({
-    data: [
-      { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: `Breakdown raised` },
-      { ticketId: ticket.id, time: hhmm, kind: 'info', icon: 'whatsapp', text: notifyText },
-    ],
-  });
+    // Build notification recipient list based on severity routing rules
+    const { text: notifyText } = await buildNotifyList(severity);
 
-  const full = await prisma.ticket.findUnique({ where: { id: ticket.id }, include: TICKET_INCLUDE });
-  res.status(201).json(full);
+    // Add initial timeline entries
+    await prisma.ticketTimeline.createMany({
+      data: [
+        { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: `Breakdown raised` },
+        { ticketId: ticket.id, time: hhmm, kind: 'info', icon: 'whatsapp', text: notifyText },
+      ],
+    });
+
+    const full = await prisma.ticket.findUnique({ where: { id: ticket.id }, include: TICKET_INCLUDE });
+    res.status(201).json(full);
+  } catch (err: any) {
+    console.error('POST /tickets error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create ticket' });
+  }
 });
 
 // POST /api/tickets/:id/acknowledge  — admin/supervisor only

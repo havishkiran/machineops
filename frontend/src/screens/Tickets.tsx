@@ -9,7 +9,7 @@ import { PageTitle } from '../components/shared';
 
 /* ============ RAISE A BREAKDOWN ============ */
 export function RaiseTicket() {
-  const { nav, createTicket, machines, units, me } = useStore();
+  const { nav, createTicket, machines, units, me, toast } = useStore();
 
   // Step 1: category
   const [category, setCategory] = useState<'Machine' | 'Development' | 'Other' | null>(null);
@@ -59,6 +59,8 @@ export function RaiseTicket() {
         desc,
       });
       setDone(id);
+    } catch (err: any) {
+      toast(err.message || 'Failed to submit. Please try again.', 'alert');
     } finally {
       setLoading(false);
     }
