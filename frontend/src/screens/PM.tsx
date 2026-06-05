@@ -1,23 +1,24 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { FREQ_LABELS, PMFrequency } from '../types';
-import { Btn, Photo, SlideOver } from '../components/ui';
+import { PMTask, PMChecklistItem, FREQ_LABELS, PMFrequency } from '../types';
+import { Btn, Photo, Badge, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
 import { PageTitle } from '../components/shared';
 
-/* ─── Add PM Task form ───────────────────────────────────────────────────── */
 const FREQUENCIES: PMFrequency[] = ['NONE', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
 
-function PMTaskForm({ onClose }: { onClose: () => void }) {
-  const { machines, users, createPMTask } = useStore();
+/* ─── Add / Edit PM Task form ─────────────────────────────────────────────── */
+function PMTaskForm({ existing, onClose }: { existing?: PMTask; onClose: () => void }) {
+  const { machines, users, parts, createPMTask, updatePMTask } = useStore();
   const [form, setForm] = useState({
-    machineId: '',
-    task: '',
-    section: '',
-    assigneeId: '',
-    nextDueDate: '',
-    frequency: 'MONTHLY' as PMFrequency,
-    notifyDaysBefore: 3,
+    machineId: existing?.machineId ?? '',
+    partId: existing?.partId ?? '',
+    task: existing?.task ?? '',
+    section: existing?.section ?? '',
+    assigneeId: existing?.assigneeId ?? '',
+    nextDueDate: existing?.nextDueDate ? existing.nextDueDate.slice(0, 10) : '',
+    frequency: (existing?.frequency ?? 'MONTHLY') as PMFrequency,
+    notifyDaysBefore: existing?.notifyDaysBefore ?? 3,
   });
   const [saving, setSaving] = useState(false);
 
@@ -25,22 +26,31 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
 
   const onMachineChange = (id: string) => {
     const m = machines.find(m => m.id === id);
-    setForm(f => ({ ...f, machineId: id, section: m?.section ?? f.section }));
+    setForm(f => ({ ...f, machineId: id, section: m?.section ?? f.section, partId: '' }));
   };
+
+  // Parts linked to the selected machine
+  const machineParts = parts.filter(p => p.machines?.some(m => m.machineId === form.machineId));
 
   const handleSave = async () => {
     if (!form.machineId || !form.task || !form.section || !form.assigneeId || !form.nextDueDate) return;
     setSaving(true);
     try {
-      await createPMTask({
+      const data = {
         machineId: form.machineId,
+        partId: form.partId || null,
         task: form.task,
         section: form.section,
         assigneeId: form.assigneeId,
         nextDueDate: form.nextDueDate,
         frequency: form.frequency,
         notifyDaysBefore: form.notifyDaysBefore,
-      });
+      };
+      if (existing) {
+        await updatePMTask(existing.id, data);
+      } else {
+        await createPMTask(data);
+      }
       onClose();
     } finally {
       setSaving(false);
@@ -50,7 +60,7 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
   const canSave = form.machineId && form.task && form.section && form.assigneeId && form.nextDueDate;
 
   return (
-    <SlideOver title="Add PM task" onClose={onClose}>
+    <SlideOver title={existing ? 'Edit PM task' : 'Add PM task'} onClose={onClose}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         <div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Machine *</div>
@@ -59,6 +69,19 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
             {machines.map(m => <option key={m.id} value={m.id}>{m.name} ({m.code})</option>)}
           </select>
         </div>
+        {form.machineId && (
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>
+              Part <span style={{ fontWeight: 400, color: '#94A3B8' }}>— optional, if PM is for a specific part</span>
+            </div>
+            <select className="input" value={form.partId} onChange={e => upd('partId', e.target.value)}>
+              <option value="">Machine-level PM (no specific part)</option>
+              {machineParts.map(p => (
+                <option key={p.id} value={p.id}>{p.name}{p.partNumber ? ` (${p.partNumber})` : ''}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Task description *</div>
           <input className="input" placeholder="e.g. Belt inspection" value={form.task} onChange={e => upd('task', e.target.value)} />
@@ -74,9 +97,7 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
             {users.map(u => <option key={u.id} value={u.id}>{u.name} — {u.role}</option>)}
           </select>
         </div>
-
         <div className="divider" />
-
         <div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Frequency *</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
@@ -89,13 +110,11 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>First due date *</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>{existing ? 'Due date *' : 'First due date *'}</div>
           <input className="input" type="date" value={form.nextDueDate} onChange={e => upd('nextDueDate', e.target.value)} style={{ maxWidth: 200 }} />
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>
-            Notify assignee before
-          </div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 5 }}>Notify assignee before</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="seg">
               {[1, 2, 3, 5, 7].map(n => (
@@ -109,8 +128,295 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
       <div style={{ display: 'flex', gap: 10, marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #E2E8F0', flexShrink: 0 }}>
         <Btn variant="secondary" size="lg" block onClick={onClose}>Cancel</Btn>
         <Btn size="lg" block onClick={handleSave} disabled={!canSave || saving}>
-          {saving ? 'Saving…' : 'Add PM task'}
+          {saving ? 'Saving…' : existing ? 'Save changes' : 'Add PM task'}
         </Btn>
+      </div>
+    </SlideOver>
+  );
+}
+
+/* ─── PM Detail slide-over ───────────────────────────────────────────────── */
+function PMDetail({ pmTask: initialTask, onClose, onEdit }: { pmTask: PMTask; onClose: () => void; onEdit: () => void }) {
+  const { loadPMTask, completeTask, addPMChecklistItem, updatePMChecklistItem, deletePMChecklistItem, nav } = useStore();
+  const [task, setTask] = useState<PMTask>(initialTask);
+  const [loading, setLoading] = useState(true);
+
+  // Completion state
+  const [completing, setCompleting] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  // Checklist editing
+  const [newItemText, setNewItemText] = useState('');
+  const [addingItem, setAddingItem] = useState(false);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const newItemRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    loadPMTask(initialTask.id).then(t => { setTask(t); setLoading(false); });
+  }, [initialTask.id]);
+
+  const checklistItems: PMChecklistItem[] = task.checklistItems ?? [];
+  const completions = task.completions ?? [];
+
+  const handleAddItem = async () => {
+    if (!newItemText.trim()) return;
+    const item = await addPMChecklistItem(task.id, newItemText.trim());
+    setTask(t => ({ ...t, checklistItems: [...(t.checklistItems ?? []), item] }));
+    setNewItemText('');
+    setAddingItem(false);
+  };
+
+  const handleUpdateItem = async (itemId: string) => {
+    if (!editingText.trim()) return;
+    const updated = await updatePMChecklistItem(task.id, itemId, { text: editingText.trim() });
+    setTask(t => ({ ...t, checklistItems: (t.checklistItems ?? []).map(i => i.id === itemId ? updated : i) }));
+    setEditingItemId(null);
+  };
+
+  const handleDeleteItem = async (itemId: string) => {
+    await deletePMChecklistItem(task.id, itemId);
+    setTask(t => ({ ...t, checklistItems: (t.checklistItems ?? []).filter(i => i.id !== itemId) }));
+  };
+
+  const handleComplete = async () => {
+    setSaving(true);
+    try {
+      await completeTask(task.id, task.task, notes, Array.from(checkedIds));
+      const refreshed = await loadPMTask(task.id);
+      setTask(refreshed);
+      setCompleting(false);
+      setCheckedIds(new Set());
+      setNotes('');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const m = task.machine;
+  const photo = m?.photos?.[0]?.url ?? null;
+  const unitCode = (m as any)?.unit?.code ?? '';
+  const isCompleted = task.state === 'COMPLETED';
+
+  const stateColor: Record<string, string> = {
+    OVERDUE: '#DC2626', DUE: '#D97706', UPCOMING: '#1B4FD8', COMPLETED: '#16A34A',
+  };
+
+  return (
+    <SlideOver title={task.task} onClose={onClose}>
+      {loading ? (
+        <div style={{ padding: 24, color: '#94A3B8', textAlign: 'center' }}>Loading…</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+          {/* State banner */}
+          {task.state === 'OVERDUE' && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icons.alert size={16} style={{ color: '#DC2626', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#DC2626' }}>Overdue by {task.overdueBy}</span>
+            </div>
+          )}
+          {task.state === 'DUE' && (
+            <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icons.alert size={16} style={{ color: '#D97706', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#D97706' }}>Due today</span>
+            </div>
+          )}
+
+          {/* Machine + Part */}
+          <div style={{ background: '#F8FAFC', borderRadius: 10, padding: '12px 14px', marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>
+            <Photo src={photo} kind="machine" radius={8} style={{ width: 52, height: 52, flex: '0 0 52px' }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <button onClick={() => { onClose(); nav('machineDetail', { id: m?.id }); }}
+                style={{ fontWeight: 600, fontSize: 14, color: '#1B4FD8', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 4 }}>
+                {m?.name} <Icons.chevright size={13} />
+              </button>
+              <div style={{ fontSize: 12, color: '#64748B', marginTop: 1 }}>
+                {unitCode && <>{unitCode} · </>}{m?.code}
+              </div>
+              {task.part && (
+                <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, background: '#EEF2FF', color: '#1B4FD8', padding: '3px 8px', borderRadius: 99, width: 'fit-content' }}>
+                  <Icons.parts size={12} />
+                  {task.part.name}{task.part.partNumber ? ` · ${task.part.partNumber}` : ''}
+                </div>
+              )}
+            </div>
+            <Badge status={task.state} />
+          </div>
+
+          {/* Meta grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: 20 }}>
+            {[
+              { label: 'Section', value: task.section },
+              { label: 'Frequency', value: FREQ_LABELS[task.frequency] },
+              { label: 'Due date', value: task.dueDate },
+              { label: 'Assignee', value: task.assignee?.name },
+              { label: 'Notify', value: `${task.notifyDaysBefore} days before` },
+            ].map(({ label, value }) => (
+              <div key={label}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#94A3B8', marginBottom: 2 }}>{label}</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#0F172A' }}>{value || '—'}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="divider" style={{ marginBottom: 20 }} />
+
+          {/* Checklist */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, fontSize: 14 }}>
+                Checklist
+                {checklistItems.length > 0 && (
+                  <span style={{ marginLeft: 6, fontSize: 12, color: '#94A3B8', fontWeight: 400 }}>
+                    ({checklistItems.length} item{checklistItems.length !== 1 ? 's' : ''})
+                  </span>
+                )}
+              </div>
+              {!completing && (
+                <button onClick={() => { setAddingItem(true); setTimeout(() => newItemRef.current?.focus(), 50); }}
+                  style={{ fontSize: 12, fontWeight: 600, color: '#1B4FD8', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Icons.plus size={14} /> Add item
+                </button>
+              )}
+            </div>
+
+            {checklistItems.length === 0 && !addingItem && (
+              <div style={{ fontSize: 13, color: '#94A3B8', padding: '12px 0' }}>
+                No checklist items yet. Add items that the technician should verify each cycle.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {checklistItems.map((item, idx) => (
+                <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: completing && checkedIds.has(item.id) ? '#F0FDF4' : '#F8FAFC', border: `1px solid ${completing && checkedIds.has(item.id) ? '#86EFAC' : '#E2E8F0'}` }}>
+                  {completing ? (
+                    <button onClick={() => setCheckedIds(s => { const n = new Set(s); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; })}
+                      style={{ width: 20, height: 20, borderRadius: 5, border: `2px solid ${checkedIds.has(item.id) ? '#16A34A' : '#CBD5E1'}`, background: checkedIds.has(item.id) ? '#16A34A' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}>
+                      {checkedIds.has(item.id) && <Icons.check size={12} style={{ color: '#fff' }} />}
+                    </button>
+                  ) : (
+                    <span style={{ width: 20, height: 20, borderRadius: 5, border: '2px solid #E2E8F0', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, color: '#94A3B8' }}>{idx + 1}</span>
+                  )}
+                  {editingItemId === item.id ? (
+                    <input
+                      className="input"
+                      style={{ flex: 1, fontSize: 13, padding: '4px 8px' }}
+                      value={editingText}
+                      onChange={e => setEditingText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleUpdateItem(item.id); if (e.key === 'Escape') setEditingItemId(null); }}
+                      onBlur={() => handleUpdateItem(item.id)}
+                      autoFocus
+                    />
+                  ) : (
+                    <span style={{ flex: 1, fontSize: 13, color: completing && checkedIds.has(item.id) ? '#94A3B8' : '#0F172A', textDecoration: completing && checkedIds.has(item.id) ? 'line-through' : 'none' }}>{item.text}</span>
+                  )}
+                  {!completing && editingItemId !== item.id && (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button onClick={() => { setEditingItemId(item.id); setEditingText(item.text); }}
+                        style={{ padding: 4, color: '#94A3B8', borderRadius: 5 }}><Icons.edit size={13} /></button>
+                      <button onClick={() => handleDeleteItem(item.id)}
+                        style={{ padding: 4, color: '#94A3B8', borderRadius: 5 }}><Icons.trash size={13} /></button>
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {addingItem && (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', borderRadius: 8, border: '1.5px solid #1B4FD8', background: '#EEF2FF' }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 5, border: '2px solid #CBD5E1', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 11, color: '#94A3B8' }}>{checklistItems.length + 1}</span>
+                  <input
+                    ref={newItemRef}
+                    className="input"
+                    style={{ flex: 1, fontSize: 13, padding: '4px 8px', background: 'transparent', border: 'none' }}
+                    placeholder="e.g. Check belt tension"
+                    value={newItemText}
+                    onChange={e => setNewItemText(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleAddItem(); if (e.key === 'Escape') { setAddingItem(false); setNewItemText(''); } }}
+                  />
+                  <Btn size="sm" onClick={handleAddItem} disabled={!newItemText.trim()}>Add</Btn>
+                  <button onClick={() => { setAddingItem(false); setNewItemText(''); }} style={{ color: '#94A3B8', padding: 4 }}><Icons.close size={14} /></button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Complete flow */}
+          {!isCompleted && completing && (
+            <>
+              <div className="divider" style={{ marginBottom: 16 }} />
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#374151', marginBottom: 6 }}>Notes <span style={{ fontWeight: 400, color: '#94A3B8' }}>(optional)</span></div>
+                <textarea
+                  className="input"
+                  rows={3}
+                  placeholder="Any observations, adjustments made, parts used…"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  style={{ resize: 'none', fontSize: 13 }}
+                />
+              </div>
+              {checklistItems.length > 0 && (
+                <div style={{ fontSize: 12, color: '#64748B', marginBottom: 12 }}>
+                  {checkedIds.size} of {checklistItems.length} items checked
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Btn variant="secondary" size="md" onClick={() => { setCompleting(false); setCheckedIds(new Set()); setNotes(''); }}>Cancel</Btn>
+                <Btn size="md" block onClick={handleComplete} disabled={saving}>
+                  {saving ? 'Saving…' : 'Confirm complete'}
+                </Btn>
+              </div>
+            </>
+          )}
+
+          {/* Completion history */}
+          {completions.length > 0 && (
+            <>
+              <div className="divider" style={{ margin: '20px 0 16px' }} />
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 12 }}>History</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {completions.map(c => {
+                  const checked = (() => { try { return JSON.parse(c.checkedItems) as string[]; } catch { return []; } })();
+                  return (
+                    <div key={c.id} style={{ padding: '10px 12px', borderRadius: 8, background: '#F8FAFC', border: '1px solid #E2E8F0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Icons.checkcircle size={14} style={{ color: '#16A34A' }} />
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#0F172A' }}>
+                            {new Date(c.completedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </span>
+                        </div>
+                        <span style={{ fontSize: 12, color: '#64748B' }}>{c.completedBy?.name ?? 'Unknown'}</span>
+                      </div>
+                      {checklistItems.length > 0 && (
+                        <div style={{ fontSize: 12, color: '#64748B', marginTop: 4 }}>
+                          {checked.length}/{checklistItems.length} items checked
+                        </div>
+                      )}
+                      {c.notes && <div style={{ fontSize: 12, color: '#475569', marginTop: 4, fontStyle: 'italic' }}>"{c.notes}"</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 'auto', paddingTop: 20, borderTop: '1px solid #E2E8F0', flexShrink: 0 }}>
+        <Btn variant="secondary" size="lg" icon="edit" onClick={onEdit}>Edit</Btn>
+        {!isCompleted && !completing && (
+          <Btn size="lg" block icon="check" onClick={() => setCompleting(true)}>Mark complete</Btn>
+        )}
+        {isCompleted && (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, color: '#16A34A', fontSize: 13, fontWeight: 600 }}>
+            <Icons.checkcircle size={16} /> Completed
+          </div>
+        )}
       </div>
     </SlideOver>
   );
@@ -119,15 +425,20 @@ function PMTaskForm({ onClose }: { onClose: () => void }) {
 /* ─── Main PM screen ─────────────────────────────────────────────────────── */
 export default function PMSchedule() {
   const S = useStore();
-  const { nav, pmTasks, completeTask, units } = S;
+  const { nav, pmTasks, units } = S;
   const [view, setView] = useState('list');
   const [showForm, setShowForm] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<PMTask | null>(null);
+  const [editingTask, setEditingTask] = useState<PMTask | null>(null);
 
   const groups = [
     { state: 'OVERDUE', label: 'Overdue', color: '#DC2626', bg: '#FEF2F2' },
     { state: 'DUE', label: 'Due today', color: '#D97706', bg: '#FFFBEB' },
     { state: 'UPCOMING', label: 'Upcoming', color: '#6B7280', bg: '#fff' },
   ];
+
+  const openDetail = (task: PMTask) => setSelectedTask(task);
+  const openEdit = (task: PMTask) => { setSelectedTask(null); setEditingTask(task); };
 
   return (
     <div className="content-pad fade-in">
@@ -161,8 +472,10 @@ export default function PMSchedule() {
                     const photo = m?.photos?.[0]?.url ?? null;
                     const accent = g.state !== 'UPCOMING';
                     const unitObj = units.find(u => u.id === m?.unitId);
+                    const itemCount = p.checklistItems?.length ?? 0;
                     return (
-                      <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderLeft: accent ? `4px solid ${g.color}` : '1px solid #E2E8F0', background: accent ? g.bg : '#fff', borderRadius: accent ? '0 12px 12px 0' : '12px' }}>
+                      <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderLeft: accent ? `4px solid ${g.color}` : '1px solid #E2E8F0', background: accent ? g.bg : '#fff', borderRadius: accent ? '0 12px 12px 0' : '12px', cursor: 'pointer' }}
+                        onClick={() => openDetail(p)}>
                         <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
@@ -172,19 +485,19 @@ export default function PMSchedule() {
                                 ? <span style={{ fontSize: 11.5, color: '#D97706', fontWeight: 600 }}>Due in {p.daysUntilDue === 0 ? 'today' : `${p.daysUntilDue}d`}</span>
                                 : null}
                             {p.frequency !== 'NONE' && (
-                              <span style={{ fontSize: 11, background: '#EEF2FF', color: '#1B4FD8', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>
-                                ↻ {FREQ_LABELS[p.frequency as PMFrequency]}
-                              </span>
+                              <span style={{ fontSize: 11, background: '#EEF2FF', color: '#1B4FD8', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>↻ {FREQ_LABELS[p.frequency as PMFrequency]}</span>
+                            )}
+                            {p.part && (
+                              <span style={{ fontSize: 11, background: '#F1F5F9', color: '#475569', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>{p.part.name}</span>
                             )}
                           </div>
                           <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
-                          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>{unitObj?.code} / {p.section} · {p.assignee?.name} · Due {p.dueDate}</div>
+                          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                            {unitObj?.code} / {p.section} · {p.assignee?.name} · Due {p.dueDate}
+                            {itemCount > 0 && <span style={{ marginLeft: 6 }}>· {itemCount} checklist item{itemCount !== 1 ? 's' : ''}</span>}
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', gap: 8 }} className="hide-mobile">
-                          <Btn size="sm" variant="secondary" icon="check" onClick={() => completeTask(p.id, p.task)}>Complete</Btn>
-                          <Btn size="sm" variant="ghost" iconRight="chevright" onClick={() => nav('machineDetail', { id: m?.id })}>View</Btn>
-                        </div>
-                        <button className="only-mobile btn btn-secondary btn-sm" onClick={() => completeTask(p.id, p.task)}><Icons.check size={16} /></button>
+                        <Icons.chevright size={16} style={{ color: '#CBD5E1', flexShrink: 0 }} />
                       </div>
                     );
                   })}
@@ -194,17 +507,22 @@ export default function PMSchedule() {
           })}
           {pmTasks.filter(p => p.state === 'COMPLETED').length > 0 && (
             <div>
-              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#16A34A', marginBottom: 10 }}>Completed ({pmTasks.filter(p => p.state === 'COMPLETED').length})</div>
+              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#16A34A', marginBottom: 10 }}>
+                Completed ({pmTasks.filter(p => p.state === 'COMPLETED').length})
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {pmTasks.filter(p => p.state === 'COMPLETED').map(p => {
                   const m = p.machine;
                   const photo = m?.photos?.[0]?.url ?? null;
                   return (
-                    <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, opacity: 0.7 }}>
+                    <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, opacity: 0.7, cursor: 'pointer' }}
+                      onClick={() => openDetail(p)}>
                       <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
-                        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>Completed</div>
+                        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                          {p.part && <>{p.part.name} · </>}Completed
+                        </div>
                       </div>
                       <Icons.checkcircle size={20} style={{ color: '#16A34A' }} />
                     </div>
@@ -213,17 +531,32 @@ export default function PMSchedule() {
               </div>
             </div>
           )}
+          {pmTasks.length === 0 && (
+            <div className="card card-pad" style={{ textAlign: 'center', color: '#94A3B8', padding: 40 }}>
+              <Icons.maintenance size={32} style={{ margin: '0 auto 12px', display: 'block' }} />
+              <div style={{ fontWeight: 600 }}>No PM tasks yet</div>
+              <div style={{ fontSize: 13, marginTop: 4 }}>Add a PM task to track scheduled maintenance.</div>
+            </div>
+          )}
         </div>
       ) : (
-        <CalendarView nav={nav} pmTasks={pmTasks} />
+        <CalendarView nav={nav} pmTasks={pmTasks} onSelectTask={openDetail} />
       )}
 
       {showForm && <PMTaskForm onClose={() => setShowForm(false)} />}
+      {editingTask && <PMTaskForm existing={editingTask} onClose={() => setEditingTask(null)} />}
+      {selectedTask && (
+        <PMDetail
+          pmTask={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onEdit={() => openEdit(selectedTask)}
+        />
+      )}
     </div>
   );
 }
 
-function CalendarView({ nav, pmTasks }: { nav: (s: string, p?: any) => void; pmTasks: any[] }) {
+function CalendarView({ nav, pmTasks, onSelectTask }: { nav: (s: string, p?: any) => void; pmTasks: any[]; onSelectTask: (t: any) => void }) {
   const [sel, setSel] = useState<number | null>(null);
   const firstDow = 6;
   const days = 28;
@@ -280,9 +613,12 @@ function CalendarView({ nav, pmTasks }: { nav: (s: string, p?: any) => void; pmT
                 const m = p.machine;
                 const photo = m?.photos?.[0]?.url ?? null;
                 return (
-                  <button key={p.id} onClick={() => { setSel(null); nav('machineDetail', { id: m?.id }); }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 10, textAlign: 'left', cursor: 'pointer', background: '#F8FAFC' }}>
+                  <button key={p.id} onClick={() => { setSel(null); onSelectTask(p); }} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 10, borderRadius: 10, textAlign: 'left', cursor: 'pointer', background: '#F8FAFC', width: '100%' }}>
                     <Photo src={photo} kind="machine" radius={7} style={{ width: 36, height: 36, flex: '0 0 36px' }} />
-                    <div style={{ flex: 1 }}><div style={{ fontWeight: 600, fontSize: 13.5 }}>{p.task}</div><div style={{ fontSize: 12, color: '#64748B' }}>{m?.name}</div></div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5 }}>{p.task}</div>
+                      <div style={{ fontSize: 12, color: '#64748B' }}>{m?.name}{p.part ? ` · ${p.part.name}` : ''}</div>
+                    </div>
                     <span style={{ width: 9, height: 9, borderRadius: 99, background: stateColor[p.state] || '#94A3B8' }} />
                   </button>
                 );

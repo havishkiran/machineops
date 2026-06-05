@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from './api';
-import { Ticket, Part, Machine, PMTask, WorkOrder, User, Organization, CustomField, Unit, PartCategory, setToken, clearToken, getToken } from './types';
+import { Ticket, Part, Machine, PMTask, PMChecklistItem, WorkOrder, User, Organization, CustomField, Unit, PartCategory, setToken, clearToken, getToken } from './types';
 
 export interface RouteState {
   screen: string;
@@ -63,7 +63,12 @@ interface StoreState {
 
   // PM mutations
   createPMTask: (data: any) => Promise<void>;
-  completeTask: (id: string, task: string) => Promise<void>;
+  updatePMTask: (id: string, data: any) => Promise<PMTask>;
+  completeTask: (id: string, task: string, notes?: string, checkedItems?: string[]) => Promise<void>;
+  loadPMTask: (id: string) => Promise<PMTask>;
+  addPMChecklistItem: (pmTaskId: string, text: string) => Promise<PMChecklistItem>;
+  updatePMChecklistItem: (pmTaskId: string, itemId: string, data: any) => Promise<PMChecklistItem>;
+  deletePMChecklistItem: (pmTaskId: string, itemId: string) => Promise<void>;
 
   // Machine CRUD
   createMachine: (data: Partial<Machine>) => Promise<Machine>;
@@ -272,10 +277,53 @@ export const useStore = create<StoreState>((set, get) => ({
     get().toast('PM task added', 'checkcircle');
   },
 
-  completeTask: async (id, task) => {
-    const updated = await api.pmTasks.complete(id);
+  updatePMTask: async (id, data) => {
+    const task = await api.pmTasks.update(id, data);
+    set(s => ({ pmTasks: s.pmTasks.map(p => p.id === id ? task : p) }));
+    get().toast('PM task updated');
+    return task;
+  },
+
+  completeTask: async (id, task, notes, checkedItems) => {
+    const { me } = get();
+    const updated = await api.pmTasks.complete(id, { notes, checkedItems, completedById: me?.id });
     set(s => ({ pmTasks: s.pmTasks.map(p => p.id === id ? updated : p) }));
     get().toast(`Completed: ${task}`, 'checkcircle');
+  },
+
+  loadPMTask: async (id) => {
+    const task = await api.pmTasks.get(id);
+    set(s => ({ pmTasks: s.pmTasks.map(p => p.id === id ? task : p) }));
+    return task;
+  },
+
+  addPMChecklistItem: async (pmTaskId, text) => {
+    const item = await api.pmTasks.addChecklistItem(pmTaskId, text);
+    set(s => ({
+      pmTasks: s.pmTasks.map(p => p.id === pmTaskId
+        ? { ...p, checklistItems: [...(p.checklistItems ?? []), item] }
+        : p),
+    }));
+    return item;
+  },
+
+  updatePMChecklistItem: async (pmTaskId, itemId, data) => {
+    const item = await api.pmTasks.updateChecklistItem(pmTaskId, itemId, data);
+    set(s => ({
+      pmTasks: s.pmTasks.map(p => p.id === pmTaskId
+        ? { ...p, checklistItems: (p.checklistItems ?? []).map(i => i.id === itemId ? item : i) }
+        : p),
+    }));
+    return item;
+  },
+
+  deletePMChecklistItem: async (pmTaskId, itemId) => {
+    await api.pmTasks.deleteChecklistItem(pmTaskId, itemId);
+    set(s => ({
+      pmTasks: s.pmTasks.map(p => p.id === pmTaskId
+        ? { ...p, checklistItems: (p.checklistItems ?? []).filter(i => i.id !== itemId) }
+        : p),
+    }));
   },
 
   // Machine CRUD

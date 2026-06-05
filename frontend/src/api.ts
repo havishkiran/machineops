@@ -60,9 +60,14 @@ export const api = {
   },
   pmTasks: {
     list: () => get<any[]>('/pm-tasks'),
+    get: (id: string) => get<any>(`/pm-tasks/${id}`),
     create: (body: any) => post<any>('/pm-tasks', body),
-    complete: (id: string) => post<any>(`/pm-tasks/${id}/complete`, {}),
+    update: (id: string, body: any) => put<any>(`/pm-tasks/${id}`, body),
+    complete: (id: string, body?: any) => post<any>(`/pm-tasks/${id}/complete`, body ?? {}),
     dueSoon: () => get<any[]>('/pm-tasks/due-soon'),
+    addChecklistItem: (id: string, text: string) => post<any>(`/pm-tasks/${id}/checklist`, { text }),
+    updateChecklistItem: (id: string, itemId: string, data: any) => put<any>(`/pm-tasks/${id}/checklist/${itemId}`, data),
+    deleteChecklistItem: (id: string, itemId: string) => del<any>(`/pm-tasks/${id}/checklist/${itemId}`),
   },
   reports: {
     summary: () => get<any>('/reports/summary'),

@@ -3,9 +3,23 @@ import { prisma } from '../lib/prisma';
 
 const router = Router();
 
-const PM_INCLUDE = {
-  machine: { include: { photos: { where: { isPrimary: true }, take: 1 } } },
+const PM_LIST_INCLUDE = {
+  machine: { include: { unit: true, photos: { where: { isPrimary: true }, take: 1 } } },
+  part: true,
   assignee: true,
+  checklistItems: { orderBy: { sortOrder: 'asc' as const } },
+};
+
+const PM_DETAIL_INCLUDE = {
+  machine: { include: { unit: true, photos: { where: { isPrimary: true }, take: 1 } } },
+  part: true,
+  assignee: true,
+  checklistItems: { orderBy: { sortOrder: 'asc' as const } },
+  completions: {
+    include: { completedBy: true },
+    orderBy: { completedAt: 'desc' as const },
+    take: 5,
+  },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -37,7 +51,7 @@ function daysUntil(nextDueDate: Date | null): number | null {
 }
 
 function fmtDueDate(d: Date): string {
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); // "16 Jun"
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
 function nextOccurrence(from: Date, frequency: string): Date {
@@ -68,33 +82,29 @@ function enrichTask(task: any) {
 // GET /api/pm-tasks
 router.get('/', async (req: Request, res: Response) => {
   const tasks = await prisma.pMTask.findMany({
-    include: PM_INCLUDE,
+    include: PM_LIST_INCLUDE,
     orderBy: { nextDueDate: 'asc' },
   });
   res.json(tasks.map(enrichTask));
 });
 
-// GET /api/pm-tasks/due-soon  — tasks due within notifyDaysBefore days (not yet notified today)
+// GET /api/pm-tasks/due-soon
 router.get('/due-soon', async (req: Request, res: Response) => {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const tasks = await prisma.pMTask.findMany({
     where: { state: { not: 'COMPLETED' }, nextDueDate: { not: null } },
-    include: PM_INCLUDE,
+    include: PM_LIST_INCLUDE,
   });
 
-  const todayMs = today.getTime();
   const notifyMs = 24 * 60 * 60 * 1000;
-
   const dueSoon = tasks.filter(t => {
     if (!t.nextDueDate) return false;
     const days = daysUntil(t.nextDueDate);
     if (days === null || days < 0 || days > t.notifyDaysBefore) return false;
-    // Skip if already notified within last 24h
     if (t.notifiedAt && (Date.now() - new Date(t.notifiedAt).getTime()) < notifyMs) return false;
     return true;
   });
 
-  // Mark as notified
   if (dueSoon.length > 0) {
     await prisma.pMTask.updateMany({
       where: { id: { in: dueSoon.map(t => t.id) } },
@@ -105,46 +115,102 @@ router.get('/due-soon', async (req: Request, res: Response) => {
   res.json(dueSoon.map(enrichTask));
 });
 
-// GET /api/pm-tasks/:id
+// GET /api/pm-tasks/:id  — full detail with checklist + completions
 router.get('/:id', async (req: Request, res: Response) => {
-  const task = await prisma.pMTask.findUnique({ where: { id: req.params.id }, include: PM_INCLUDE });
+  const task = await prisma.pMTask.findUnique({
+    where: { id: req.params.id },
+    include: PM_DETAIL_INCLUDE,
+  });
   if (!task) return res.status(404).json({ error: 'Not found' });
   res.json(enrichTask(task));
 });
 
 // POST /api/pm-tasks
 router.post('/', async (req: Request, res: Response) => {
-  const { machineId, task, section, assigneeId, nextDueDate, frequency = 'NONE', notifyDaysBefore = 3 } = req.body;
+  const { machineId, partId, task, section, assigneeId, nextDueDate, frequency = 'NONE', notifyDaysBefore = 3 } = req.body;
 
   const dueDateISO = nextDueDate ? new Date(nextDueDate) : null;
   const dueDate = dueDateISO ? fmtDueDate(dueDateISO) : (req.body.dueDate ?? '');
   const state = dueDateISO ? computeState(dueDateISO) : 'UPCOMING';
 
   const created = await prisma.pMTask.create({
-    data: { machineId, task, section, assigneeId, dueDate, nextDueDate: dueDateISO, frequency, notifyDaysBefore, state },
-    include: PM_INCLUDE,
+    data: {
+      machineId,
+      partId: partId || null,
+      task,
+      section,
+      assigneeId,
+      dueDate,
+      nextDueDate: dueDateISO,
+      frequency,
+      notifyDaysBefore,
+      state,
+    },
+    include: PM_LIST_INCLUDE,
   });
   res.status(201).json(enrichTask(created));
 });
 
+// PUT /api/pm-tasks/:id  — update task fields
+router.put('/:id', async (req: Request, res: Response) => {
+  const { task, section, assigneeId, partId, nextDueDate, frequency, notifyDaysBefore } = req.body;
+  const data: any = {};
+  if (task !== undefined) data.task = task;
+  if (section !== undefined) data.section = section;
+  if (assigneeId !== undefined) data.assigneeId = assigneeId;
+  if (partId !== undefined) data.partId = partId || null;
+  if (frequency !== undefined) data.frequency = frequency;
+  if (notifyDaysBefore !== undefined) data.notifyDaysBefore = notifyDaysBefore;
+  if (nextDueDate !== undefined) {
+    const d = new Date(nextDueDate);
+    data.nextDueDate = d;
+    data.dueDate = fmtDueDate(d);
+    data.state = computeState(d);
+  }
+
+  const updated = await prisma.pMTask.update({
+    where: { id: req.params.id },
+    data,
+    include: PM_DETAIL_INCLUDE,
+  });
+  res.json(enrichTask(updated));
+});
+
 // POST /api/pm-tasks/:id/complete
 router.post('/:id/complete', async (req: Request, res: Response) => {
-  const existing = await prisma.pMTask.findUnique({ where: { id: req.params.id } });
+  const { notes, checkedItems, completedById } = req.body;
+  const userId = completedById || (req as any).user?.userId;
+
+  const existing = await prisma.pMTask.findUnique({
+    where: { id: req.params.id },
+    include: { checklistItems: true },
+  });
   if (!existing) return res.status(404).json({ error: 'Not found' });
+
+  // Save completion record
+  await prisma.pMTaskCompletion.create({
+    data: {
+      pmTaskId: req.params.id,
+      completedById: userId || null,
+      notes: notes || null,
+      checkedItems: JSON.stringify(checkedItems || []),
+    },
+  });
 
   const completed = await prisma.pMTask.update({
     where: { id: req.params.id },
     data: { state: 'COMPLETED', completedAt: new Date() },
-    include: PM_INCLUDE,
+    include: PM_DETAIL_INCLUDE,
   });
 
-  // Auto-create next occurrence if recurring
+  // Auto-create next occurrence if recurring — copy checklist items
   if (existing.frequency !== 'NONE' && existing.nextDueDate) {
     const nextDate = nextOccurrence(existing.nextDueDate, existing.frequency);
     const nextState = computeState(nextDate);
-    await prisma.pMTask.create({
+    const newTask = await prisma.pMTask.create({
       data: {
         machineId: existing.machineId,
+        partId: existing.partId,
         task: existing.task,
         section: existing.section,
         assigneeId: existing.assigneeId,
@@ -155,9 +221,53 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
         state: nextState,
       },
     });
+    // Copy checklist items to new task
+    if (existing.checklistItems.length > 0) {
+      await prisma.pMChecklistItem.createMany({
+        data: existing.checklistItems.map(item => ({
+          pmTaskId: newTask.id,
+          text: item.text,
+          sortOrder: item.sortOrder,
+        })),
+      });
+    }
   }
 
   res.json(enrichTask(completed));
+});
+
+// ── Checklist CRUD ────────────────────────────────────────────────────────────
+
+// POST /api/pm-tasks/:id/checklist
+router.post('/:id/checklist', async (req: Request, res: Response) => {
+  const { text } = req.body;
+  if (!text?.trim()) return res.status(400).json({ error: 'text required' });
+
+  const count = await prisma.pMChecklistItem.count({ where: { pmTaskId: req.params.id } });
+  const item = await prisma.pMChecklistItem.create({
+    data: { pmTaskId: req.params.id, text: text.trim(), sortOrder: count },
+  });
+  res.status(201).json(item);
+});
+
+// PUT /api/pm-tasks/:id/checklist/:itemId
+router.put('/:id/checklist/:itemId', async (req: Request, res: Response) => {
+  const { text, sortOrder } = req.body;
+  const data: any = {};
+  if (text !== undefined) data.text = text.trim();
+  if (sortOrder !== undefined) data.sortOrder = sortOrder;
+
+  const item = await prisma.pMChecklistItem.update({
+    where: { id: req.params.itemId },
+    data,
+  });
+  res.json(item);
+});
+
+// DELETE /api/pm-tasks/:id/checklist/:itemId
+router.delete('/:id/checklist/:itemId', async (req: Request, res: Response) => {
+  await prisma.pMChecklistItem.delete({ where: { id: req.params.itemId } });
+  res.json({ ok: true });
 });
 
 export default router;

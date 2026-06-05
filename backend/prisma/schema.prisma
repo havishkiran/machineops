@@ -47,18 +47,19 @@ model Unit {
 }
 
 model User {
-  id               String            @id @default(cuid())
+  id               String              @id @default(cuid())
   name             String
-  email            String            @unique
+  email            String              @unique
   passwordHash     String
-  role             String            // Super Admin | Floor Supervisor | Shift Supervisor | Senior Technician | Technician
+  role             String              // Super Admin | Floor Supervisor | Shift Supervisor | Senior Technician | Technician
   phone            String?
-  active           Boolean           @default(true)
+  active           Boolean             @default(true)
   orgId            String
-  org              Organization      @relation(fields: [orgId], references: [id])
-  raisedTickets    Ticket[]          @relation("RaisedTickets")
-  assignedTickets  Ticket[]          @relation("AssignedTickets")
+  org              Organization        @relation(fields: [orgId], references: [id])
+  raisedTickets    Ticket[]            @relation("RaisedTickets")
+  assignedTickets  Ticket[]            @relation("AssignedTickets")
   pmTasks          PMTask[]
+  pmCompletions    PMTaskCompletion[]
   workOrders       WorkOrder[]
   workOrderLabor   WorkOrderLabor[]
   ticketComments   TicketComment[]
@@ -163,6 +164,7 @@ model Part {
   criticality    String            @default("Medium")  // Critical|High|Medium|Low
   orgId          String
   machines       PartMachine[]
+  pmTasks        PMTask[]
   transactions   PartTransaction[]
   workOrderParts WorkOrderPart[]
 }
@@ -198,22 +200,45 @@ model PartTransaction {
 }
 
 model PMTask {
-  id               String      @id @default(cuid())
+  id               String              @id @default(cuid())
   machineId        String
-  machine          Machine     @relation(fields: [machineId], references: [id])
+  machine          Machine             @relation(fields: [machineId], references: [id])
+  partId           String?             // optional: PM scoped to a specific part on the machine
+  part             Part?               @relation(fields: [partId], references: [id])
   task             String
   section          String
   assigneeId       String
-  assignee         User        @relation(fields: [assigneeId], references: [id])
+  assignee         User                @relation(fields: [assigneeId], references: [id])
   dueDate          String
-  nextDueDate      DateTime?   // ISO date — source of truth for recurrence & notifications
-  frequency        String      @default("NONE")  // NONE|WEEKLY|FORTNIGHTLY|MONTHLY|QUARTERLY|YEARLY
-  notifyDaysBefore Int         @default(3)
-  state            String      @default("UPCOMING")  // OVERDUE|DUE|UPCOMING|COMPLETED
+  nextDueDate      DateTime?           // ISO date — source of truth for recurrence & notifications
+  frequency        String              @default("NONE")  // NONE|WEEKLY|FORTNIGHTLY|MONTHLY|QUARTERLY|YEARLY
+  notifyDaysBefore Int                 @default(3)
+  state            String              @default("UPCOMING")  // OVERDUE|DUE|UPCOMING|COMPLETED
   overdueBy        String?
   completedAt      DateTime?
-  notifiedAt       DateTime?   // when last pre-due notification was sent
+  notifiedAt       DateTime?           // when last pre-due notification was sent
   workOrders       WorkOrder[]
+  checklistItems   PMChecklistItem[]
+  completions      PMTaskCompletion[]
+}
+
+model PMChecklistItem {
+  id        String  @id @default(cuid())
+  pmTaskId  String
+  pmTask    PMTask  @relation(fields: [pmTaskId], references: [id], onDelete: Cascade)
+  text      String
+  sortOrder Int     @default(0)
+}
+
+model PMTaskCompletion {
+  id            String   @id @default(cuid())
+  pmTaskId      String
+  pmTask        PMTask   @relation(fields: [pmTaskId], references: [id], onDelete: Cascade)
+  completedAt   DateTime @default(now())
+  completedById String?
+  completedBy   User?    @relation(fields: [completedById], references: [id])
+  notes         String?
+  checkedItems  String   @default("[]") // JSON array of PMChecklistItem ids that were ticked
 }
 
 model WorkOrder {

@@ -167,10 +167,29 @@ export const FREQ_LABELS: Record<PMFrequency, string> = {
   YEARLY: 'Yearly',
 };
 
+export interface PMChecklistItem {
+  id: string;
+  pmTaskId: string;
+  text: string;
+  sortOrder: number;
+}
+
+export interface PMTaskCompletion {
+  id: string;
+  pmTaskId: string;
+  completedAt: string;
+  completedById?: string | null;
+  completedBy?: User | null;
+  notes?: string | null;
+  checkedItems: string; // JSON array of PMChecklistItem ids
+}
+
 export interface PMTask {
   id: string;
   machineId: string;
-  machine: Machine;
+  machine: Machine & { unit?: Unit | null };
+  partId?: string | null;
+  part?: Part | null;
   task: string;
   section: string;
   assigneeId: string;
@@ -183,6 +202,8 @@ export interface PMTask {
   overdueBy?: string | null;
   daysUntilDue?: number | null;
   completedAt?: string | null;
+  checklistItems?: PMChecklistItem[];
+  completions?: PMTaskCompletion[];
 }
 
 export interface WorkOrderStep {
