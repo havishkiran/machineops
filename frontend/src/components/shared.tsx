@@ -1,4 +1,5 @@
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '../store';
 import { Machine } from '../types';
 import { Photo, Badge } from './ui';
@@ -107,11 +108,11 @@ export function BulkBar({ count, onDelete, onClear, deleting }: {
   count: number; onDelete: () => void; onClear: () => void; deleting?: boolean;
 }) {
   if (count === 0) return null;
-  return (
+  return createPortal(
     <div style={{
       position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
       background: '#0F172A', color: '#fff', borderRadius: 14, padding: '12px 20px',
-      display: 'flex', alignItems: 'center', gap: 16, zIndex: 200,
+      display: 'flex', alignItems: 'center', gap: 16, zIndex: 9999,
       boxShadow: '0 8px 32px rgba(15,23,42,0.35)', whiteSpace: 'nowrap',
     }}>
       <span style={{ fontSize: 14, fontWeight: 500 }}>{count} selected</span>
@@ -119,7 +120,8 @@ export function BulkBar({ count, onDelete, onClear, deleting }: {
       <button onClick={onDelete} disabled={deleting} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: deleting ? 0.6 : 1 }}>
         {deleting ? 'Deleting…' : 'Delete selected'}
       </button>
-    </div>
+    </div>,
+    document.body
   );
 }
 
