@@ -255,6 +255,8 @@ export function TicketList() {
   const active = filters.find(f => f.k === filter)!;
   const list = tickets.filter(active.test);
 
+  const allSelected = list.length > 0 && list.every(t => selected.has(t.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(list.map(t => t.id)));
   const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const handleBulkDelete = async () => {
@@ -298,6 +300,14 @@ export function TicketList() {
           </button>
         ))}
       </div>
+      {isAdmin && list.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, paddingLeft: 2 }}>
+          <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ width: 17, height: 17, accentColor: '#1B4FD8', cursor: 'pointer' }} />
+          <span style={{ fontSize: 13, color: '#64748B', cursor: 'pointer' }} onClick={toggleAll}>
+            {allSelected ? 'Deselect all' : `Select all (${list.length})`}
+          </span>
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {list.map(t => {
           const photo = t.machine?.photos?.[0]?.url ?? null;

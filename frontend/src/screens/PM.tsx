@@ -446,6 +446,9 @@ export default function PMSchedule() {
   const openDetail = (task: PMTask) => setSelectedTask(task);
   const openEdit = (task: PMTask) => { setSelectedTask(null); setEditingTask(task); };
 
+  const allVisible = pmTasks.filter(p => groups.some(g => g.state === p.state));
+  const allSelected = allVisible.length > 0 && allVisible.every(p => selected.has(p.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allVisible.map(p => p.id)));
   const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   const handleBulkDelete = async () => {
@@ -495,6 +498,14 @@ export default function PMSchedule() {
 
       {view === 'list' ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          {isAdmin && allVisible.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: -8, paddingLeft: 2 }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ width: 17, height: 17, accentColor: '#1B4FD8', cursor: 'pointer' }} />
+              <span style={{ fontSize: 13, color: '#64748B', cursor: 'pointer' }} onClick={toggleAll}>
+                {allSelected ? 'Deselect all' : `Select all (${allVisible.length})`}
+              </span>
+            </div>
+          )}
           {groups.map(g => {
             const items = pmTasks.filter(p => p.state === g.state);
             if (items.length === 0) return null;
