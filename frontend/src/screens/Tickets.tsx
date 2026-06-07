@@ -286,8 +286,8 @@ export function TicketList() {
           {isAdmin && (
             <>
               <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
-              <Btn variant="secondary" size="lg" onClick={() => downloadCSV('tickets_template.csv', templateHeaders, templateSample)}>Template</Btn>
-              <Btn variant="secondary" size="lg" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
+              <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('tickets_template.csv', templateHeaders, templateSample)}>Template</Btn>
+              <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
             </>
           )}
           <Btn size="lg" icon="plus" onClick={() => nav('raise')}>Report breakdown</Btn>
