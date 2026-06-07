@@ -94,7 +94,6 @@ export default function PartsInventory() {
               <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
             </>
           )}
-          <Btn variant="secondary" size="lg" icon="download">Export</Btn>
           <Btn size="lg" icon="plus" onClick={() => { setEditPart(null); setShowForm(true); }}>Add part</Btn>
         </div>
       } />
