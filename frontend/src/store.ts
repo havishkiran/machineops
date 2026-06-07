@@ -105,6 +105,16 @@ interface StoreState {
   createPartCategory: (name: string) => Promise<PartCategory>;
   deletePartCategory: (id: string) => Promise<void>;
 
+  // Bulk operations
+  bulkDeleteMachines: (ids: string[]) => Promise<void>;
+  importMachines: (rows: any[]) => Promise<{ created: number; errors: string[] }>;
+  bulkDeleteTickets: (ids: string[]) => Promise<void>;
+  importTickets: (rows: any[]) => Promise<{ created: number; errors: string[] }>;
+  bulkDeletePMTasks: (ids: string[]) => Promise<void>;
+  importPMTasks: (rows: any[]) => Promise<{ created: number; errors: string[] }>;
+  bulkDeleteParts: (ids: string[]) => Promise<void>;
+  importParts: (rows: any[]) => Promise<{ created: number; errors: string[] }>;
+
   // Settings
   setOrg: (updater: (prev: Organization) => Organization) => void;
   saveSettings: () => Promise<void>;
@@ -472,6 +482,53 @@ export const useStore = create<StoreState>((set, get) => ({
   deletePartCategory: async (id) => {
     await api.partCategories.delete(id);
     set(s => ({ partCategories: s.partCategories.filter(c => c.id !== id) }));
+  },
+
+  // Bulk operations
+  bulkDeleteMachines: async (ids) => {
+    await api.machines.bulkDelete(ids);
+    set(s => ({
+      machines: s.machines.filter(m => !ids.includes(m.id)),
+      tickets: s.tickets.map(t => ids.includes(t.machineId ?? '') ? { ...t, machineId: null, machine: null } : t),
+      pmTasks: s.pmTasks.filter(p => !ids.includes(p.machineId)),
+      workOrders: s.workOrders.filter(w => !ids.includes(w.machineId)),
+    }));
+    get().toast(`${ids.length} machine${ids.length !== 1 ? 's' : ''} deleted`);
+  },
+  importMachines: async (rows) => {
+    const result = await api.machines.import(rows);
+    if (result.machines?.length) set(s => ({ machines: [...s.machines, ...result.machines].sort((a: any, b: any) => a.name.localeCompare(b.name)) }));
+    return result;
+  },
+  bulkDeleteTickets: async (ids) => {
+    await api.tickets.bulkDelete(ids);
+    set(s => ({ tickets: s.tickets.filter(t => !ids.includes(t.id)) }));
+    get().toast(`${ids.length} ticket${ids.length !== 1 ? 's' : ''} deleted`);
+  },
+  importTickets: async (rows) => {
+    const result = await api.tickets.import(rows);
+    if (result.tickets?.length) set(s => ({ tickets: [...result.tickets, ...s.tickets] }));
+    return result;
+  },
+  bulkDeletePMTasks: async (ids) => {
+    await api.pmTasks.bulkDelete(ids);
+    set(s => ({ pmTasks: s.pmTasks.filter(p => !ids.includes(p.id)) }));
+    get().toast(`${ids.length} PM task${ids.length !== 1 ? 's' : ''} deleted`);
+  },
+  importPMTasks: async (rows) => {
+    const result = await api.pmTasks.import(rows);
+    if (result.tasks?.length) set(s => ({ pmTasks: [...result.tasks, ...s.pmTasks] }));
+    return result;
+  },
+  bulkDeleteParts: async (ids) => {
+    await api.parts.bulkDelete(ids);
+    set(s => ({ parts: s.parts.filter(p => !ids.includes(p.id)) }));
+    get().toast(`${ids.length} part${ids.length !== 1 ? 's' : ''} deleted`);
+  },
+  importParts: async (rows) => {
+    const result = await api.parts.import(rows);
+    if (result.parts?.length) set(s => ({ parts: [...s.parts, ...result.parts].sort((a: any, b: any) => a.name.localeCompare(b.name)) }));
+    return result;
   },
 
   setOrg: (updater) => {

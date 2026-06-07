@@ -50,6 +50,74 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(machines);
 });
 
+// DELETE /api/machines/bulk — hard delete with cascade handling
+router.delete('/bulk', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const orgId = (req as any).user?.orgId;
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  await prisma.$transaction(async (tx) => {
+    // Null out ticket machineIds (tickets are kept, just unlinked)
+    await tx.ticket.updateMany({ where: { machineId: { in: ids } }, data: { machineId: null } });
+    // Delete PM tasks (checklistItems and completions cascade)
+    await tx.pMTask.deleteMany({ where: { machineId: { in: ids } } });
+    // Delete work orders (steps, parts, labor cascade)
+    await tx.workOrder.deleteMany({ where: { machineId: { in: ids } } });
+    // Delete machines (photos and partMachines cascade)
+    await tx.machine.deleteMany({ where: { id: { in: ids }, orgId } });
+  });
+  res.json({ deleted: ids.length });
+});
+
+// POST /api/machines/import — bulk create, auto-generate machine codes
+router.post('/import', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const orgId = (req as any).user?.orgId;
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
+
+  const units = await prisma.unit.findMany({ where: { orgId } });
+  const unitMap = new Map(units.map(u => [u.code.toUpperCase(), u]));
+
+  const created: any[] = [];
+  const errors: string[] = [];
+
+  for (const [i, row] of rows.entries()) {
+    const rowNum = i + 2;
+    const unit = unitMap.get((row.unit_code ?? '').toUpperCase());
+    if (!unit) { errors.push(`Row ${rowNum}: unknown unit_code "${row.unit_code}"`); continue; }
+    if (!row.name?.trim() || !row.section?.trim()) { errors.push(`Row ${rowNum}: name and section are required`); continue; }
+
+    // Auto-generate code
+    const sectionAbbr = abbrev(row.section, 3);
+    const typeAbbr = row.machine_type?.trim() ? abbrev(row.machine_type, 4) : 'GEN';
+    const prefix = `${unit.code.toUpperCase()}-${sectionAbbr}-${typeAbbr}-`;
+    const existing = await prisma.machine.findMany({ where: { orgId, code: { startsWith: prefix } }, select: { code: true } });
+    let maxSeq = 0;
+    for (const m of [...existing, ...created.filter(m => m.code.startsWith(prefix))]) {
+      const seq = parseInt(m.code.slice(prefix.length), 10);
+      if (!isNaN(seq) && seq > maxSeq) maxSeq = seq;
+    }
+    const code = `${prefix}${String(maxSeq + 1).padStart(3, '0')}`;
+
+    try {
+      const machine = await prisma.machine.create({
+        data: {
+          name: row.name.trim(), code, unitId: unit.id, section: row.section.trim(),
+          machineType: row.machine_type?.trim() || null,
+          status: ['WORKING','WARNING','CRITICAL','IDLE','INACTIVE'].includes((row.status ?? '').toUpperCase()) ? row.status.toUpperCase() : 'WORKING',
+          manufacturer: row.manufacturer?.trim() || null, model: row.model?.trim() || null,
+          year: row.year?.trim() || null, lastPM: row.last_pm?.trim() || null, nextPM: row.next_pm?.trim() || null,
+          uptime: row.uptime ? Math.min(100, Math.max(0, Number(row.uptime))) : 100, orgId,
+        },
+        include: { photos: true, _count: { select: { tickets: true } } },
+      });
+      created.push(machine);
+    } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+  }
+  res.json({ created: created.length, machines: created, errors });
+});
+
 // GET /api/machines/:id
 router.get('/:id', async (req: Request, res: Response) => {
   const machine = await prisma.machine.findUnique({

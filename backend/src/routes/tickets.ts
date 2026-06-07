@@ -28,6 +28,66 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(tickets);
 });
 
+// DELETE /api/tickets/bulk — hard delete
+router.delete('/bulk', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  const { count } = await prisma.ticket.deleteMany({ where: { id: { in: ids } } });
+  res.json({ deleted: count });
+});
+
+// POST /api/tickets/import — bulk create, logged-in admin as raiser
+router.post('/import', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const adminId = (req as any).user?.userId;
+  const orgId = (req as any).user?.orgId;
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
+
+  // Resolve machine codes to IDs
+  const machines = await prisma.machine.findMany({ where: { orgId }, select: { id: true, code: true } });
+  const machineMap = new Map(machines.map(m => [m.code.toUpperCase(), m.id]));
+
+  const created: any[] = [];
+  const errors: string[] = [];
+  const hhmm = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+  for (const [i, row] of rows.entries()) {
+    const rowNum = i + 2;
+    if (!row.severity || !row.title) { errors.push(`Row ${rowNum}: severity and title are required`); continue; }
+    const machineId = row.machine_code ? machineMap.get(row.machine_code.toUpperCase()) : null;
+    if (row.machine_code && !machineId) { errors.push(`Row ${rowNum}: unknown machine_code "${row.machine_code}"`); continue; }
+
+    const validSeverities = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+    const severity = validSeverities.includes((row.severity ?? '').toUpperCase()) ? row.severity.toUpperCase() : 'MEDIUM';
+
+    try {
+      const count = await prisma.ticket.count();
+      const ticketNum = `TKT-${new Date().getFullYear()}-${String(count + 43 + created.length).padStart(4, '0')}`;
+      const ticket = await prisma.ticket.create({
+        data: {
+          ticketNum,
+          machineId: machineId ?? null,
+          category: row.category || 'Machine',
+          severity,
+          type: row.type || 'Breakdown',
+          title: row.title.trim(),
+          description: row.description?.trim() || row.title.trim(),
+          status: TicketStatus.OPEN,
+          raisedById: adminId,
+        },
+        include: TICKET_INCLUDE,
+      });
+      await prisma.ticketTimeline.create({
+        data: { ticketId: ticket.id, time: hhmm, kind: severity === 'CRITICAL' ? 'crit' : severity === 'HIGH' ? 'high' : 'warn', icon: 'alert', text: 'Imported via bulk upload' },
+      });
+      created.push(ticket);
+    } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+  }
+  res.json({ created: created.length, tickets: created, errors });
+});
+
 // GET /api/tickets/:id
 router.get('/:id', async (req: Request, res: Response) => {
   const ticket = await prisma.ticket.findUnique({

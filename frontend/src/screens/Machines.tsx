@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { Machine, CustomField } from '../types';
 import { Badge, Btn, Photo, QRBox, EmptyState, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { MachineCard, PageTitle, FilterBar, Drop } from '../components/shared';
+import { MachineCard, PageTitle, FilterBar, Drop, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
 import { api } from '../api';
 
 /* ─── Machine Add / Edit form slide-over ─────────────────────────────────── */
@@ -261,22 +261,63 @@ function CustomFieldInput({ field, value, onChange }: { field: CustomField; valu
 
 /* ─── Machine List ──────────────────────────────────────────────────────────── */
 export function MachineList() {
-  const { nav, machines, units } = useStore();
+  const { nav, machines, units, me, bulkDeleteMachines, importMachines } = useStore();
   const [view, setView] = useState(window.innerWidth < 1024 ? 'grid' : 'table');
   const [q, setQ] = useState('');
   const [unit, setUnit] = useState('all');
   const [showForm, setShowForm] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const isAdmin = me?.role === 'Super Admin';
 
   const list = machines.filter(m =>
     (unit === 'all' || m.unitId === unit) &&
     (m.name.toLowerCase().includes(q.toLowerCase()) || m.code.toLowerCase().includes(q.toLowerCase()))
   );
 
+  const allSelected = list.length > 0 && list.every(m => selected.has(m.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(list.map(m => m.id)));
+  const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Mark ${selected.size} machine${selected.size !== 1 ? 's' : ''} as inactive?`)) return;
+    setDeleting(true);
+    try { await bulkDeleteMachines(Array.from(selected)); setSelected(new Set()); }
+    finally { setDeleting(false); }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const text = await file.text();
+    const rows = parseCSV(text);
+    try { const result = await importMachines(rows); setImportResult(result); }
+    finally { setImporting(false); e.target.value = ''; }
+  };
+
+  const templateHeaders = ['name','unit_code','section','machine_type','status','manufacturer','model','year','last_pm','next_pm','uptime'];
+  const templateSample = ['Dipping Machine 5','TVPM','Dipping','Dipping Machine','WORKING','Sussman','DX-300','2023','','','100'];
+
   return (
     <div className="content-pad fade-in">
       <PageTitle
         title="Machines"
-        right={<Btn size="lg" icon="plus" onClick={() => setShowForm(true)}>Add machine</Btn>}
+        right={
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {isAdmin && (
+              <>
+                <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
+                <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('machines_template.csv', templateHeaders, templateSample)}>Template</Btn>
+                <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
+              </>
+            )}
+            <Btn size="lg" icon="plus" onClick={() => setShowForm(true)}>Add machine</Btn>
+          </div>
+        }
       />
       <FilterBar>
         <div className="seg">
@@ -303,7 +344,17 @@ export function MachineList() {
 
       {list.length > 0 && (view === 'grid' || window.innerWidth < 1024) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
-          {list.map(m => <MachineCard key={m.id} m={m} />)}
+          {list.map(m => (
+            <div key={m.id} style={{ position: 'relative' }}>
+              {isAdmin && (
+                <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 10 }}
+                  onClick={e => { e.stopPropagation(); toggleOne(m.id); }}>
+                  <input type="checkbox" checked={selected.has(m.id)} onChange={() => {}} style={{ width: 17, height: 17, cursor: 'pointer', accentColor: '#1B4FD8' }} />
+                </div>
+              )}
+              <MachineCard m={m} />
+            </div>
+          ))}
         </div>
       )}
 
@@ -311,6 +362,7 @@ export function MachineList() {
         <div className="card" style={{ overflow: 'hidden', padding: 0 }}>
           <table className="tbl">
             <thead><tr>
+              {isAdmin && <th style={{ width: 44 }}><input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ accentColor: '#1B4FD8', cursor: 'pointer' }} /></th>}
               <th style={{ width: 64 }}></th>
               <th>Machine</th><th>Code</th><th>Unit</th><th>Section</th><th>Status</th><th>Last PM</th><th></th>
             </tr></thead>
@@ -320,6 +372,11 @@ export function MachineList() {
                 const photo = m.photos?.[0]?.url ?? null;
                 return (
                   <tr key={m.id} style={{ cursor: 'pointer' }} onClick={() => nav('machineDetail', { id: m.id })}>
+                    {isAdmin && (
+                      <td onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggleOne(m.id)} style={{ accentColor: '#1B4FD8', cursor: 'pointer' }} />
+                      </td>
+                    )}
                     <td><Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48 }} /></td>
                     <td style={{ fontWeight: 600 }}>{m.name}</td>
                     <td className="mono" style={{ fontSize: 13, color: '#475569' }}>{m.code}</td>
@@ -342,6 +399,9 @@ export function MachineList() {
           onSaved={() => setShowForm(false)}
         />
       )}
+
+      {isAdmin && <BulkBar count={selected.size} onDelete={handleBulkDelete} onClear={() => setSelected(new Set())} deleting={deleting} />}
+      <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
     </div>
   );
 }

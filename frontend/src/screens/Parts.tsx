@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { Part, CustomField, fmtINR } from '../types';
 import { Badge, Btn, Photo, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
 import { api } from '../api';
 
 export default function PartsInventory() {
@@ -17,6 +17,12 @@ export default function PartsInventory() {
   const [stockPart, setStockPart] = useState<Part | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editPart, setEditPart] = useState<Part | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const isAdmin = S.me?.role === 'Super Admin';
 
   const counts = {
     total: parts.length,
@@ -48,10 +54,46 @@ export default function PartsInventory() {
 
   const primaryMachine = (p: Part) => p.machines?.[0]?.machine;
 
+  const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allSelected = list.length > 0 && list.every(p => selected.has(p.id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(list.map(p => p.id)));
+
+  const handleBulkDelete = async () => {
+    const selectedParts = parts.filter(p => selected.has(p.id));
+    const shared = selectedParts.filter(p => (p.machines?.length ?? 0) > 1);
+    const msg = shared.length > 0
+      ? `${shared.length} of the selected part${shared.length !== 1 ? 's are' : ' is'} shared across multiple machines (${shared.map(p => p.name).join(', ')}).\n\nDeleting will remove them from all machines. Continue?`
+      : `Delete ${selected.size} part${selected.size !== 1 ? 's' : ''}? This cannot be undone.`;
+    if (!window.confirm(msg)) return;
+    setDeleting(true);
+    try { await S.bulkDeleteParts(Array.from(selected)); setSelected(new Set()); }
+    finally { setDeleting(false); }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const text = await file.text();
+    const rows = parseCSV(text);
+    try { const result = await S.importParts(rows); setImportResult(result); }
+    finally { setImporting(false); e.target.value = ''; }
+  };
+
+  const templateHeaders = ['part_number','name','spec','qty','min_qty','cost','category','criticality','supplier','vendor_name','vendor_phone','location'];
+  const templateSample = ['','Bearing 6205','Deep groove ball bearing','10','2','350','Bearing','Medium','SKF India','SKF Store Chennai','+91 98765 43210','Unit A - Shelf 2'];
+
   return (
     <div className="content-pad fade-in">
       <PageTitle title="Spare Parts" right={
-        <div style={{ display: 'flex', gap: 10 }} className="hide-mobile">
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }} className="hide-mobile">
+          {isAdmin && (
+            <>
+              <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
+              <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('parts_template.csv', templateHeaders, templateSample)}>Template</Btn>
+              <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
+            </>
+          )}
           <Btn variant="secondary" size="lg" icon="download">Export</Btn>
           <Btn size="lg" icon="plus" onClick={() => { setEditPart(null); setShowForm(true); }}>Add part</Btn>
         </div>
@@ -91,6 +133,7 @@ export default function PartsInventory() {
       <div className="card hide-mobile" style={{ padding: 0, overflow: 'hidden' }}>
         <table className="tbl">
           <thead><tr>
+            {isAdmin && <th style={{ width: 44 }}><input type="checkbox" checked={allSelected} onChange={toggleAll} style={{ accentColor: '#1B4FD8', cursor: 'pointer' }} /></th>}
             <th style={{ width: 56 }}></th>
             <th>Part no.</th>
             <th>Part name</th>
@@ -105,6 +148,11 @@ export default function PartsInventory() {
           <tbody>
             {list.map(p => (
               <tr key={p.id} className={p.status === 'OUT' ? 'row-crit' : p.status === 'LOW_STOCK' ? 'row-warn' : ''} style={{ cursor: 'pointer' }} onClick={() => setOpenPart(p)}>
+                {isAdmin && (
+                  <td onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)} style={{ accentColor: '#1B4FD8', cursor: 'pointer' }} />
+                  </td>
+                )}
                 <td><Photo src={p.photoUrl} kind="part" radius={6} style={{ width: 40, height: 40 }} /></td>
                 <td><span className="mono" style={{ fontSize: 11.5, color: '#64748B' }}>{p.partNumber || '—'}</span></td>
                 <td style={{ fontWeight: 600 }}>{p.name}</td>
@@ -163,6 +211,8 @@ export default function PartsInventory() {
           onSaved={() => { setShowForm(false); setEditPart(null); }}
         />
       )}
+      {isAdmin && <BulkBar count={selected.size} onDelete={handleBulkDelete} onClear={() => setSelected(new Set())} deleting={deleting} />}
+      <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
     </div>
   );
 }

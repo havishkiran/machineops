@@ -115,6 +115,61 @@ router.get('/due-soon', async (req: Request, res: Response) => {
   res.json(dueSoon.map(enrichTask));
 });
 
+// DELETE /api/pm-tasks/bulk — hard delete
+router.delete('/bulk', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  const { count } = await prisma.pMTask.deleteMany({ where: { id: { in: ids } } });
+  res.json({ deleted: count });
+});
+
+// POST /api/pm-tasks/import — bulk create
+router.post('/import', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const orgId = (req as any).user?.orgId;
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
+
+  const machines = await prisma.machine.findMany({ where: { orgId } });
+  const machineMap = new Map(machines.map(m => [m.code.toUpperCase(), m]));
+  const users = await prisma.user.findMany({ where: { orgId } });
+  const userMap = new Map(users.map(u => [u.email.toLowerCase(), u]));
+
+  const created: any[] = [];
+  const errors: string[] = [];
+
+  for (const [i, row] of rows.entries()) {
+    const rowNum = i + 2;
+    const machine = machineMap.get((row.machine_code ?? '').toUpperCase());
+    if (!machine) { errors.push(`Row ${rowNum}: unknown machine_code "${row.machine_code}"`); continue; }
+    const assignee = userMap.get((row.assignee_email ?? '').toLowerCase());
+    if (!assignee) { errors.push(`Row ${rowNum}: unknown assignee_email "${row.assignee_email}"`); continue; }
+    if (!row.task?.trim()) { errors.push(`Row ${rowNum}: task is required`); continue; }
+
+    const validFreqs = ['NONE','WEEKLY','FORTNIGHTLY','MONTHLY','QUARTERLY','YEARLY'];
+    const frequency = validFreqs.includes((row.frequency ?? '').toUpperCase()) ? row.frequency.toUpperCase() : 'MONTHLY';
+    const nextDueDate = row.next_due_date ? new Date(row.next_due_date) : null;
+    const state = computeState(nextDueDate);
+
+    try {
+      const task = await prisma.pMTask.create({
+        data: {
+          machineId: machine.id, task: row.task.trim(),
+          section: row.section?.trim() || machine.section,
+          assigneeId: assignee.id, frequency, nextDueDate,
+          dueDate: row.next_due_date || '',
+          notifyDaysBefore: row.notify_days_before ? Number(row.notify_days_before) : 3,
+          state, overdueBy: overdueStr(nextDueDate),
+        },
+        include: PM_LIST_INCLUDE,
+      });
+      created.push(task);
+    } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+  }
+  res.json({ created: created.length, tasks: created, errors });
+});
+
 // GET /api/pm-tasks/:id  — full detail with checklist + completions
 router.get('/:id', async (req: Request, res: Response) => {
   const task = await prisma.pMTask.findUnique({

@@ -5,7 +5,7 @@ import { Part } from '../types';
 import { WOForm } from './WorkOrders';
 import { Badge, Btn, Photo, Avatar } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
 
 /* ============ RAISE A BREAKDOWN ============ */
 export function RaiseTicket() {
@@ -238,8 +238,14 @@ export function RaiseTicket() {
 
 /* ============ BREAKDOWN LIST ============ */
 export function TicketList() {
-  const { nav, tickets } = useStore();
+  const { nav, tickets, me, bulkDeleteTickets, importTickets } = useStore();
   const [filter, setFilter] = useState('open');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const isAdmin = me?.role === 'Super Admin';
 
   const filters = [
     { k: 'open', l: 'Open', test: (t: any) => ['OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS'].includes(t.status) },
@@ -249,9 +255,42 @@ export function TicketList() {
   const active = filters.find(f => f.k === filter)!;
   const list = tickets.filter(active.test);
 
+  const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selected.size} ticket${selected.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try { await bulkDeleteTickets(Array.from(selected)); setSelected(new Set()); }
+    finally { setDeleting(false); }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const text = await file.text();
+    const rows = parseCSV(text);
+    try { const result = await importTickets(rows); setImportResult(result); }
+    finally { setImporting(false); e.target.value = ''; }
+  };
+
+  const templateHeaders = ['machine_code', 'category', 'severity', 'type', 'title', 'description'];
+  const templateSample = ['TVPM-DIP-DIPM-001', 'Machine', 'HIGH', 'Breakdown', 'Bearing noise on dipping machine', 'Unusual grinding noise heard during operation'];
+
   return (
     <div className="content-pad fade-in">
-      <PageTitle title="Breakdowns" right={<Btn size="lg" icon="plus" onClick={() => nav('raise')}>Report breakdown</Btn>} />
+      <PageTitle title="Breakdowns" right={
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <>
+              <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
+              <Btn variant="secondary" size="lg" onClick={() => downloadCSV('tickets_template.csv', templateHeaders, templateSample)}>Template</Btn>
+              <Btn variant="secondary" size="lg" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
+            </>
+          )}
+          <Btn size="lg" icon="plus" onClick={() => nav('raise')}>Report breakdown</Btn>
+        </div>
+      } />
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         {filters.map(f => (
           <button key={f.k} className={'chip ' + (filter === f.k ? 'on' : '')} onClick={() => setFilter(f.k)}>
@@ -263,26 +302,34 @@ export function TicketList() {
         {list.map(t => {
           const photo = t.machine?.photos?.[0]?.url ?? null;
           return (
-            <button key={t.id} onClick={() => nav('ticketDetail', { id: t.ticketNum })} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, textAlign: 'left', cursor: 'pointer' }}>
-              <Photo src={photo} kind="machine" radius={8} style={{ width: 52, height: 52, flex: '0 0 52px' }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span className="mono" style={{ fontSize: 12, color: '#64748B' }}>{t.ticketNum}</span>
-                  <Badge status={t.severity} /><Badge status={t.status} />
-                  {t.category && t.category !== 'Machine' && (
-                    <span className="badge b-neut">{t.category}</span>
-                  )}
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {isAdmin && (
+                <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggleOne(t.id)}
+                  style={{ width: 17, height: 17, flexShrink: 0, accentColor: '#1B4FD8', cursor: 'pointer' }} />
+              )}
+              <button onClick={() => nav('ticketDetail', { id: t.ticketNum })} className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: 14, textAlign: 'left', cursor: 'pointer' }}>
+                <Photo src={photo} kind="machine" radius={8} style={{ width: 52, height: 52, flex: '0 0 52px' }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span className="mono" style={{ fontSize: 12, color: '#64748B' }}>{t.ticketNum}</span>
+                    <Badge status={t.severity} /><Badge status={t.status} />
+                    {t.category && t.category !== 'Machine' && (
+                      <span className="badge b-neut">{t.category}</span>
+                    )}
+                  </div>
+                  <div style={{ fontWeight: 600, fontSize: 14.5, marginTop: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
+                  <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>
+                    {t.machine ? t.machine.name : t.category} · {t.assignedTo ? t.assignedTo.name : 'unassigned'}
+                  </div>
                 </div>
-                <div style={{ fontWeight: 600, fontSize: 14.5, marginTop: 5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.title}</div>
-                <div style={{ fontSize: 12.5, color: '#64748B', marginTop: 2 }}>
-                  {t.machine ? t.machine.name : t.category} · {t.assignedTo ? t.assignedTo.name : 'unassigned'}
-                </div>
-              </div>
-              <Icons.chevright size={20} style={{ color: '#94A3B8', flex: '0 0 20px' }} />
-            </button>
+                <Icons.chevright size={20} style={{ color: '#94A3B8', flex: '0 0 20px' }} />
+              </button>
+            </div>
           );
         })}
       </div>
+      {isAdmin && <BulkBar count={selected.size} onDelete={handleBulkDelete} onClear={() => setSelected(new Set())} deleting={deleting} />}
+      <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
     </div>
   );
 }

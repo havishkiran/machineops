@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { PMTask, PMChecklistItem, FREQ_LABELS, PMFrequency } from '../types';
 import { Btn, Photo, Badge, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
 
 const FREQUENCIES: PMFrequency[] = ['NONE', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
 
@@ -430,6 +430,12 @@ export default function PMSchedule() {
   const [showForm, setShowForm] = useState(false);
   const [selectedTask, setSelectedTask] = useState<PMTask | null>(null);
   const [editingTask, setEditingTask] = useState<PMTask | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{ created: number; errors: string[] } | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
+  const isAdmin = S.me?.role === 'Super Admin';
 
   const groups = [
     { state: 'OVERDUE', label: 'Overdue', color: '#DC2626', bg: '#FEF2F2' },
@@ -440,10 +446,39 @@ export default function PMSchedule() {
   const openDetail = (task: PMTask) => setSelectedTask(task);
   const openEdit = (task: PMTask) => { setSelectedTask(null); setEditingTask(task); };
 
+  const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  const handleBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selected.size} PM task${selected.size !== 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try { await S.bulkDeletePMTasks(Array.from(selected)); setSelected(new Set()); }
+    finally { setDeleting(false); }
+  };
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    const text = await file.text();
+    const rows = parseCSV(text);
+    try { const result = await S.importPMTasks(rows); setImportResult(result); }
+    finally { setImporting(false); e.target.value = ''; }
+  };
+
+  const templateHeaders = ['machine_code','task','section','assignee_email','frequency','next_due_date','notify_days_before'];
+  const templateSample = ['TVPM-DIP-DIPM-001','Lubricate bearings','Dipping','tech@tvpm.co.in','MONTHLY','2026-07-01','3'];
+
   return (
     <div className="content-pad fade-in">
       <PageTitle title="Maintenance" right={
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <>
+              <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
+              <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('pm_tasks_template.csv', templateHeaders, templateSample)}>Template</Btn>
+              <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
+            </>
+          )}
           <div className="seg">
             <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}><Icons.list size={16} /> List</button>
             <button className={view === 'calendar' ? 'on' : ''} onClick={() => setView('calendar')}><Icons.calendar size={16} /> Calendar</button>
@@ -474,30 +509,36 @@ export default function PMSchedule() {
                     const unitObj = units.find(u => u.id === m?.unitId);
                     const itemCount = p.checklistItems?.length ?? 0;
                     return (
-                      <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderLeft: accent ? `4px solid ${g.color}` : '1px solid #E2E8F0', background: accent ? g.bg : '#fff', borderRadius: accent ? '0 12px 12px 0' : '12px', cursor: 'pointer' }}
-                        onClick={() => openDetail(p)}>
-                        <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
-                            {p.overdueBy
-                              ? <span style={{ fontSize: 11.5, color: g.color, fontWeight: 600 }}>{p.overdueBy} overdue</span>
-                              : p.daysUntilDue !== null && p.daysUntilDue !== undefined && p.daysUntilDue <= (p.notifyDaysBefore ?? 3)
-                                ? <span style={{ fontSize: 11.5, color: '#D97706', fontWeight: 600 }}>Due in {p.daysUntilDue === 0 ? 'today' : `${p.daysUntilDue}d`}</span>
-                                : null}
-                            {p.frequency !== 'NONE' && (
-                              <span style={{ fontSize: 11, background: '#EEF2FF', color: '#1B4FD8', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>↻ {FREQ_LABELS[p.frequency as PMFrequency]}</span>
-                            )}
-                            {p.part && (
-                              <span style={{ fontSize: 11, background: '#F1F5F9', color: '#475569', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>{p.part.name}</span>
-                            )}
+                      <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        {isAdmin && (
+                          <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)}
+                            style={{ width: 17, height: 17, flexShrink: 0, accentColor: '#1B4FD8', cursor: 'pointer' }} />
+                        )}
+                        <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: 14, borderLeft: accent ? `4px solid ${g.color}` : '1px solid #E2E8F0', background: accent ? g.bg : '#fff', borderRadius: accent ? '0 12px 12px 0' : '12px', cursor: 'pointer' }}
+                          onClick={() => openDetail(p)}>
+                          <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 2, flexWrap: 'wrap' }}>
+                              {p.overdueBy
+                                ? <span style={{ fontSize: 11.5, color: g.color, fontWeight: 600 }}>{p.overdueBy} overdue</span>
+                                : p.daysUntilDue !== null && p.daysUntilDue !== undefined && p.daysUntilDue <= (p.notifyDaysBefore ?? 3)
+                                  ? <span style={{ fontSize: 11.5, color: '#D97706', fontWeight: 600 }}>Due in {p.daysUntilDue === 0 ? 'today' : `${p.daysUntilDue}d`}</span>
+                                  : null}
+                              {p.frequency !== 'NONE' && (
+                                <span style={{ fontSize: 11, background: '#EEF2FF', color: '#1B4FD8', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>↻ {FREQ_LABELS[p.frequency as PMFrequency]}</span>
+                              )}
+                              {p.part && (
+                                <span style={{ fontSize: 11, background: '#F1F5F9', color: '#475569', borderRadius: 99, padding: '1px 8px', fontWeight: 500 }}>{p.part.name}</span>
+                              )}
+                            </div>
+                            <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
+                            <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                              {unitObj?.code} / {p.section} · {p.assignee?.name} · Due {p.dueDate}
+                              {itemCount > 0 && <span style={{ marginLeft: 6 }}>· {itemCount} checklist item{itemCount !== 1 ? 's' : ''}</span>}
+                            </div>
                           </div>
-                          <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
-                          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                            {unitObj?.code} / {p.section} · {p.assignee?.name} · Due {p.dueDate}
-                            {itemCount > 0 && <span style={{ marginLeft: 6 }}>· {itemCount} checklist item{itemCount !== 1 ? 's' : ''}</span>}
-                          </div>
+                          <Icons.chevright size={16} style={{ color: '#CBD5E1', flexShrink: 0 }} />
                         </div>
-                        <Icons.chevright size={16} style={{ color: '#CBD5E1', flexShrink: 0 }} />
                       </div>
                     );
                   })}
@@ -515,16 +556,22 @@ export default function PMSchedule() {
                   const m = p.machine;
                   const photo = m?.photos?.[0]?.url ?? null;
                   return (
-                    <div key={p.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 14, opacity: 0.7, cursor: 'pointer' }}
-                      onClick={() => openDetail(p)}>
-                      <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
-                        <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
-                          {p.part && <>{p.part.name} · </>}Completed
+                    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {isAdmin && (
+                        <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleOne(p.id)}
+                          style={{ width: 17, height: 17, flexShrink: 0, accentColor: '#1B4FD8', cursor: 'pointer' }} />
+                      )}
+                      <div className="card" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 14, padding: 14, opacity: 0.7, cursor: 'pointer' }}
+                        onClick={() => openDetail(p)}>
+                        <Photo src={photo} kind="machine" radius={8} style={{ width: 48, height: 48, flex: '0 0 48px' }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 14.5 }}>{m?.name} — {p.task}</div>
+                          <div style={{ fontSize: 12, color: '#64748B', marginTop: 2 }}>
+                            {p.part && <>{p.part.name} · </>}Completed
+                          </div>
                         </div>
+                        <Icons.checkcircle size={20} style={{ color: '#16A34A' }} />
                       </div>
-                      <Icons.checkcircle size={20} style={{ color: '#16A34A' }} />
                     </div>
                   );
                 })}
@@ -552,6 +599,8 @@ export default function PMSchedule() {
           onEdit={() => openEdit(selectedTask)}
         />
       )}
+      {isAdmin && <BulkBar count={selected.size} onDelete={handleBulkDelete} onClear={() => setSelected(new Set())} deleting={deleting} />}
+      <ImportResultModal result={importResult} onClose={() => setImportResult(null)} />
     </div>
   );
 }

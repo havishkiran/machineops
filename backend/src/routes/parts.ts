@@ -31,6 +31,53 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(parts);
 });
 
+// DELETE /api/parts/bulk — hard delete
+router.delete('/bulk', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' });
+  const { count } = await prisma.part.deleteMany({ where: { id: { in: ids } } });
+  res.json({ deleted: count });
+});
+
+// POST /api/parts/import — bulk create
+router.post('/import', async (req: Request, res: Response) => {
+  if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
+  const orgId = (req as any).user?.orgId;
+  const { rows } = req.body;
+  if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
+
+  const created: any[] = [];
+  const errors: string[] = [];
+
+  for (const [i, row] of rows.entries()) {
+    const rowNum = i + 2;
+    if (!row.name?.trim()) { errors.push(`Row ${rowNum}: name is required`); continue; }
+    const qty = row.qty ? Math.max(0, Number(row.qty)) : 0;
+    const minQty = row.min_qty ? Math.max(0, Number(row.min_qty)) : 0;
+    const partNumber = row.part_number?.trim() || await generatePartNumber(orgId);
+    try {
+      const part = await prisma.part.create({
+        data: {
+          partNumber, name: row.name.trim(), spec: row.spec?.trim() || null,
+          qty, minQty, status: calcStatus(qty, minQty),
+          cost: row.cost ? Number(row.cost) : 0,
+          category: row.category?.trim() || null,
+          criticality: row.criticality?.trim() || 'Medium',
+          supplier: row.supplier?.trim() || null,
+          vendorName: row.vendor_name?.trim() || null,
+          vendorPhone: row.vendor_phone?.trim() || null,
+          location: row.location?.trim() || null,
+          orgId,
+        },
+        include: PART_INCLUDE,
+      });
+      created.push(part);
+    } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+  }
+  res.json({ created: created.length, parts: created, errors });
+});
+
 // GET /api/parts/:id
 router.get('/:id', async (req: Request, res: Response) => {
   const part = await prisma.part.findUnique({

@@ -38,6 +38,8 @@ export const api = {
     create: (body: any) => post<any>('/machines', body),
     update: (id: string, body: any) => put<any>(`/machines/${id}`, body),
     delete: (id: string) => del<any>(`/machines/${id}`),
+    bulkDelete: (ids: string[]) => request<any>('/machines/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    import: (rows: any[]) => post<any>('/machines/import', { rows }),
   },
   tickets: {
     list: () => get<any[]>('/tickets'),
@@ -48,6 +50,8 @@ export const api = {
     resolve: (id: string, body: any) => post<any>(`/tickets/${id}/resolve`, body),
     assign: (id: string, body: any) => post<any>(`/tickets/${id}/assign`, body),
     addComment: (id: string, body: any) => post<any>(`/tickets/${id}/comments`, body),
+    bulkDelete: (ids: string[]) => request<any>('/tickets/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    import: (rows: any[]) => post<any>('/tickets/import', { rows }),
   },
   parts: {
     list: () => get<any[]>('/parts'),
@@ -57,6 +61,8 @@ export const api = {
     delete: (id: string) => del<any>(`/parts/${id}`),
     addStock: (id: string, body: any) => post<any>(`/parts/${id}/addstock`, body),
     consume: (id: string, body: any) => post<any>(`/parts/${id}/consume`, body),
+    bulkDelete: (ids: string[]) => request<any>('/parts/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    import: (rows: any[]) => post<any>('/parts/import', { rows }),
   },
   pmTasks: {
     list: () => get<any[]>('/pm-tasks'),
@@ -68,6 +74,8 @@ export const api = {
     addChecklistItem: (id: string, text: string) => post<any>(`/pm-tasks/${id}/checklist`, { text }),
     updateChecklistItem: (id: string, itemId: string, data: any) => put<any>(`/pm-tasks/${id}/checklist/${itemId}`, data),
     deleteChecklistItem: (id: string, itemId: string) => del<any>(`/pm-tasks/${id}/checklist/${itemId}`),
+    bulkDelete: (ids: string[]) => request<any>('/pm-tasks/bulk', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+    import: (rows: any[]) => post<any>('/pm-tasks/import', { rows }),
   },
   reports: {
     summary: () => get<any>('/reports/summary'),
