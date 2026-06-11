@@ -80,8 +80,8 @@ export default function PartsInventory() {
     finally { setImporting(false); e.target.value = ''; }
   };
 
-  const templateHeaders = ['part_number','name','spec','qty','min_qty','cost','category','criticality','supplier','vendor_name','vendor_phone','location'];
-  const templateSample = ['','Bearing 6205','Deep groove ball bearing','10','2','350','Bearing','Medium','SKF India','SKF Store Chennai','+91 98765 43210','Unit A - Shelf 2'];
+  const templateHeaders = ['part_number','name','spec','qty','min_qty','cost','category','criticality','supplier','vendor_name','vendor_phone','location','machine_codes'];
+  const templateSample = ['','Bearing 6205','Deep groove ball bearing','10','2','350','Bearing','Medium','SKF India','SKF Store Chennai','+91 98765 43210','Unit A - Shelf 2','MCH-001:2|MCH-003:1'];
 
   return (
     <div className="content-pad fade-in">
@@ -254,10 +254,10 @@ function PartForm({ part, onClose, onSaved }: { part: Part | null; onClose: () =
   const [cost, setCost] = useState(String(part?.cost ?? 0));
   const [criticality, setCriticality] = useState(part?.criticality ?? 'Medium');
 
-  // Multi-machine selection: unit → machines
+  // Multi-machine selection: unit → machines, each with qty
   const [selectedUnit, setSelectedUnit] = useState<string>('');
-  const [selectedMachineIds, setSelectedMachineIds] = useState<string[]>(
-    part?.machines?.map(m => m.machineId) ?? []
+  const [machineAssociations, setMachineAssociations] = useState<{ machineId: string; qty: number }[]>(
+    part?.machines?.map(m => ({ machineId: m.machineId, qty: m.qty ?? 1 })) ?? []
   );
 
   const [cfValues, setCfValues] = useState<Record<string, string>>({});
@@ -281,8 +281,16 @@ function PartForm({ part, onClose, onSaved }: { part: Part | null; onClose: () =
   }, [part?.id]);
 
   const toggleMachine = (id: string) => {
-    setSelectedMachineIds(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    setMachineAssociations(prev =>
+      prev.some(a => a.machineId === id)
+        ? prev.filter(a => a.machineId !== id)
+        : [...prev, { machineId: id, qty: 1 }]
+    );
+  };
+
+  const setMachineQty = (machineId: string, qty: number) => {
+    setMachineAssociations(prev =>
+      prev.map(a => a.machineId === machineId ? { ...a, qty: Math.max(1, qty) } : a)
     );
   };
 
@@ -310,7 +318,7 @@ function PartForm({ part, onClose, onSaved }: { part: Part | null; onClose: () =
     try {
       const payload = {
         name: name.trim(),
-        machineIds: selectedMachineIds,
+        machineAssociations,
         spec: spec || null,
         qty: Number(qty) || 0,
         minQty: Number(minQty) || 1,
@@ -467,34 +475,48 @@ function PartForm({ part, onClose, onSaved }: { part: Part | null; onClose: () =
           {selectedUnit && unitMachinesForPicker.length > 0 && (
             <div style={{ border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden', maxHeight: 200, overflowY: 'auto' }}>
               {unitMachinesForPicker.map((m, i) => {
-                const selected = selectedMachineIds.includes(m.id);
+                const assoc = machineAssociations.find(a => a.machineId === m.id);
+                const selected = !!assoc;
                 const photo = m.photos?.[0]?.url ?? null;
                 return (
-                  <button key={m.id} onClick={() => toggleMachine(m.id)}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 12px', background: selected ? '#EEF2FF' : '#fff', borderBottom: i < unitMachinesForPicker.length - 1 ? '1px solid #F1F5F9' : 'none', textAlign: 'left', cursor: 'pointer' }}>
-                    <Photo src={photo} kind="machine" radius={6} style={{ width: 34, height: 34, flex: '0 0 34px' }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
-                      <div style={{ fontSize: 11.5, color: '#64748B' }}>{m.section}</div>
-                    </div>
-                    <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid ' + (selected ? '#1B4FD8' : '#CBD5E1'), background: selected ? '#1B4FD8' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {selected && <Icons.check size={13} style={{ color: '#fff' }} />}
-                    </div>
-                  </button>
+                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 12px', background: selected ? '#EEF2FF' : '#fff', borderBottom: i < unitMachinesForPicker.length - 1 ? '1px solid #F1F5F9' : 'none' }}>
+                    <button onClick={() => toggleMachine(m.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, textAlign: 'left', cursor: 'pointer' }}>
+                      <Photo src={photo} kind="machine" radius={6} style={{ width: 34, height: 34, flex: '0 0 34px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{m.name}</div>
+                        <div style={{ fontSize: 11.5, color: '#64748B' }}>{m.section}</div>
+                      </div>
+                      <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid ' + (selected ? '#1B4FD8' : '#CBD5E1'), background: selected ? '#1B4FD8' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {selected && <Icons.check size={13} style={{ color: '#fff' }} />}
+                      </div>
+                    </button>
+                    {selected && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, color: '#64748B' }}>Qty</span>
+                        <input
+                          type="number" min="1" value={assoc.qty}
+                          onChange={e => setMachineQty(m.id, Number(e.target.value))}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: 52, padding: '3px 6px', fontSize: 13, border: '1px solid #C7D2FE', borderRadius: 6, textAlign: 'center', background: '#fff' }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>
           )}
 
-          {/* Show selected machines summary */}
-          {selectedMachineIds.length > 0 && (
+          {/* Show selected machines summary with qty */}
+          {machineAssociations.length > 0 && (
             <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {selectedMachineIds.map(id => {
-                const m = machines.find(x => x.id === id);
+              {machineAssociations.map(({ machineId, qty: mQty }) => {
+                const m = machines.find(x => x.id === machineId);
                 return m ? (
-                  <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, background: '#EEF2FF', border: '1px solid #C7D2FE', fontSize: 12, color: '#1B4FD8', fontWeight: 500 }}>
+                  <span key={machineId} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 99, background: '#EEF2FF', border: '1px solid #C7D2FE', fontSize: 12, color: '#1B4FD8', fontWeight: 500 }}>
                     {m.name}
-                    <button onClick={() => toggleMachine(id)} style={{ color: '#1B4FD8', padding: 0 }}><Icons.close size={12} /></button>
+                    {mQty > 1 && <span style={{ background: '#1B4FD8', color: '#fff', borderRadius: 99, padding: '1px 6px', fontSize: 11 }}>×{mQty}</span>}
+                    <button onClick={() => toggleMachine(machineId)} style={{ color: '#1B4FD8', padding: 0 }}><Icons.close size={12} /></button>
                   </span>
                 ) : null;
               })}

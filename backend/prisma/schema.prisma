@@ -175,6 +175,7 @@ model PartMachine {
   part      Part    @relation(fields: [partId], references: [id], onDelete: Cascade)
   machineId String
   machine   Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  qty       Int     @default(1)  // how many of this part are installed on this machine
 
   @@unique([partId, machineId])
 }

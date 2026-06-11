@@ -47,6 +47,10 @@ router.post('/import', async (req: Request, res: Response) => {
   const { rows } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
 
+  // Pre-fetch all machines for this org so we can resolve codes without N+1 queries
+  const orgMachines = await prisma.machine.findMany({ where: { orgId }, select: { id: true, code: true } });
+  const machineByCode = new Map(orgMachines.map(m => [m.code.toUpperCase(), m.id]));
+
   const created: any[] = [];
   const errors: string[] = [];
 
@@ -56,6 +60,20 @@ router.post('/import', async (req: Request, res: Response) => {
     const qty = row.qty ? Math.max(0, Number(row.qty)) : 0;
     const minQty = row.min_qty ? Math.max(0, Number(row.min_qty)) : 0;
     const partNumber = row.part_number?.trim() || await generatePartNumber(orgId);
+
+    // Resolve pipe-separated machine codes (format: MCH-001:2|MCH-003 — colon = qty, default 1)
+    const resolvedAssocs: { machineId: string; qty: number }[] = [];
+    if (row.machine_codes) {
+      for (const segment of row.machine_codes.split('|')) {
+        const [rawCode, rawQty] = segment.trim().split(':');
+        const code = rawCode?.trim().toUpperCase();
+        if (!code) continue;
+        const id = machineByCode.get(code);
+        if (id) resolvedAssocs.push({ machineId: id, qty: rawQty ? Math.max(1, Number(rawQty)) || 1 : 1 });
+        else errors.push(`Row ${rowNum}: machine code "${code}" not found — skipped`);
+      }
+    }
+
     try {
       const part = await prisma.part.create({
         data: {
@@ -69,6 +87,9 @@ router.post('/import', async (req: Request, res: Response) => {
           vendorPhone: row.vendor_phone?.trim() || null,
           location: row.location?.trim() || null,
           orgId,
+          machines: resolvedAssocs.length > 0
+            ? { create: resolvedAssocs.map(a => ({ machineId: a.machineId, qty: a.qty })) }
+            : undefined,
         },
         include: PART_INCLUDE,
       });
@@ -91,7 +112,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 // POST /api/parts
 router.post('/', async (req: Request, res: Response) => {
   const {
-    name, machineIds = [], spec, qty = 0, minQty = 1,
+    name, machineAssociations = [], spec, qty = 0, minQty = 1,
     supplier, vendorName, vendorPhone, location, category,
     cost = 0, criticality = 'Medium', photoUrl,
   } = req.body;
@@ -99,6 +120,7 @@ router.post('/', async (req: Request, res: Response) => {
   const numQty = Number(qty) || 0;
   const numMinQty = Number(minQty) || 1;
   const partNumber = await generatePartNumber(orgId);
+  const assocs: { machineId: string; qty: number }[] = machineAssociations;
 
   const part = await prisma.part.create({
     data: {
@@ -117,8 +139,8 @@ router.post('/', async (req: Request, res: Response) => {
       photoUrl,
       orgId,
       status: calcStatus(numQty, numMinQty),
-      machines: machineIds.length > 0
-        ? { create: (machineIds as string[]).map((machineId: string) => ({ machineId })) }
+      machines: assocs.length > 0
+        ? { create: assocs.map(a => ({ machineId: a.machineId, qty: Number(a.qty) || 1 })) }
         : undefined,
     },
     include: { machines: { include: { machine: { include: { unit: true, photos: { where: { isPrimary: true }, take: 1 } } } } } },
@@ -129,7 +151,7 @@ router.post('/', async (req: Request, res: Response) => {
 // PUT /api/parts/:id
 router.put('/:id', async (req: Request, res: Response) => {
   const {
-    name, machineIds, spec, qty, minQty,
+    name, machineAssociations, spec, qty, minQty,
     supplier, vendorName, vendorPhone, location, category,
     cost, criticality, photoUrl,
   } = req.body;
@@ -158,13 +180,13 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
   }
 
-  // Update machine associations if provided
-  if (machineIds !== undefined) {
-    // Delete old associations and re-create
+  // Update machine associations if provided — delete-and-recreate with qty
+  if (machineAssociations !== undefined) {
+    const assocs: { machineId: string; qty: number }[] = machineAssociations;
     await prisma.partMachine.deleteMany({ where: { partId: req.params.id } });
-    if ((machineIds as string[]).length > 0) {
+    if (assocs.length > 0) {
       await prisma.partMachine.createMany({
-        data: (machineIds as string[]).map((machineId: string) => ({ partId: req.params.id, machineId })),
+        data: assocs.map(a => ({ partId: req.params.id, machineId: a.machineId, qty: Number(a.qty) || 1 })),
       });
     }
   }

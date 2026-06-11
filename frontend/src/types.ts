@@ -115,6 +115,7 @@ export interface PartMachineLink {
   id: string;
   partId: string;
   machineId: string;
+  qty: number;
   machine: Machine;
 }
 

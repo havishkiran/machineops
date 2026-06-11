@@ -408,12 +408,13 @@ export function MachineList() {
 
 /* ─── Machine Detail ─────────────────────────────────────────────────────── */
 export function MachineDetail({ id }: { id: string }) {
-  const { nav, tickets, parts, machines, units, addMachinePhoto, deleteMachinePhoto } = useStore();
+  const { nav, tickets, parts, machines, units, addMachinePhoto, deleteMachinePhoto, updatePart } = useStore();
   const m = machines.find(mc => mc.id === id) || machines[0];
   const unit = units.find(u => u.id === m?.unitId);
   const [tab, setTab] = useState('overview');
   const [activePhoto, setActivePhoto] = useState(0);
   const [showEdit, setShowEdit] = useState(false);
+  const [showAddPart, setShowAddPart] = useState(false);
   const [machine, setMachine] = useState(m);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -577,20 +578,29 @@ export function MachineDetail({ id }: { id: string }) {
             ? <EmptyState icon="box" heading="No parts" subtext="No spare parts linked to this machine." />
             : (
               <table className="tbl">
-                <thead><tr><th style={{ width: 56 }}></th><th>Part name</th><th>Qty</th><th>Min</th><th>Status</th></tr></thead>
+                <thead><tr><th style={{ width: 56 }}></th><th>Part name</th><th>On machine</th><th>Stock</th><th>Status</th></tr></thead>
                 <tbody>
-                  {mparts.map(p => (
-                    <tr key={p.id} className={p.status === 'OUT' ? 'row-crit' : p.status === 'LOW_STOCK' ? 'row-warn' : ''}>
-                      <td><Photo src={p.photoUrl} kind="part" radius={6} style={{ width: 40, height: 40 }} /></td>
-                      <td style={{ fontWeight: 600 }}>{p.name}</td>
-                      <td>{p.qty}</td><td style={{ color: '#64748B' }}>{p.minQty}</td>
-                      <td><Badge status={p.status} /></td>
-                    </tr>
-                  ))}
+                  {mparts.map(p => {
+                    const link = p.machines?.find(ml => ml.machineId === machine.id);
+                    return (
+                      <tr key={p.id} className={p.status === 'OUT' ? 'row-crit' : p.status === 'LOW_STOCK' ? 'row-warn' : ''}>
+                        <td><Photo src={p.photoUrl} kind="part" radius={6} style={{ width: 40, height: 40 }} /></td>
+                        <td style={{ fontWeight: 600 }}>
+                          {p.name}
+                          {p.partNumber && <div className="mono" style={{ fontSize: 11, color: '#94A3B8' }}>{p.partNumber}</div>}
+                        </td>
+                        <td style={{ fontWeight: 600, color: '#1B4FD8' }}>{link?.qty ?? 1}</td>
+                        <td style={{ color: '#64748B' }}>{p.qty}</td>
+                        <td><Badge status={p.status} /></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
-          <div style={{ padding: 14 }}><Btn variant="ghost" icon="plus" style={{ color: '#1B4FD8' }}>Add part to this machine</Btn></div>
+          <div style={{ padding: 14 }}>
+            <Btn variant="ghost" icon="plus" style={{ color: '#1B4FD8' }} onClick={() => setShowAddPart(true)}>Add part to this machine</Btn>
+          </div>
         </div>
       )}
 
@@ -607,6 +617,94 @@ export function MachineDetail({ id }: { id: string }) {
           onSaved={(updated) => { setMachine(updated); setShowEdit(false); }}
         />
       )}
+
+      {showAddPart && machine && (
+        <AddPartToMachineModal
+          machineId={machine.id}
+          linkedPartIds={mparts.map(p => p.id)}
+          onClose={() => setShowAddPart(false)}
+          onSaved={() => setShowAddPart(false)}
+        />
+      )}
     </div>
+  );
+}
+
+/* ─── Add Part to Machine Modal ──────────────────────────────────────────── */
+function AddPartToMachineModal({
+  machineId, linkedPartIds, onClose, onSaved,
+}: {
+  machineId: string;
+  linkedPartIds: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { parts, updatePart } = useStore();
+  const [q, setQ] = useState('');
+  const [selected, setSelected] = useState<{ partId: string; qty: number } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const available = parts.filter(p =>
+    !linkedPartIds.includes(p.id) &&
+    (p.name.toLowerCase().includes(q.toLowerCase()) ||
+      (p.partNumber ?? '').toLowerCase().includes(q.toLowerCase()) ||
+      (p.category ?? '').toLowerCase().includes(q.toLowerCase()))
+  );
+
+  const handleAdd = async () => {
+    if (!selected) return;
+    setSaving(true);
+    const part = parts.find(p => p.id === selected.partId)!;
+    const existing = part.machines?.map(m => ({ machineId: m.machineId, qty: m.qty ?? 1 })) ?? [];
+    await updatePart(selected.partId, {
+      machineAssociations: [...existing, { machineId, qty: selected.qty }],
+    } as any);
+    onSaved();
+  };
+
+  return (
+    <SlideOver title="Add part to this machine" onClose={onClose} width={440}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="searchbox">
+          <Icons.search size={16} style={{ color: '#94A3B8' }} />
+          <input placeholder="Search parts…" value={q} onChange={e => setQ(e.target.value)} autoFocus />
+        </div>
+
+        <div style={{ border: '1px solid #E2E8F0', borderRadius: 10, overflow: 'hidden', maxHeight: 340, overflowY: 'auto' }}>
+          {available.length === 0
+            ? <div style={{ padding: '24px 16px', textAlign: 'center', color: '#94A3B8', fontSize: 13 }}>No parts found</div>
+            : available.map((p, i) => {
+              const isSelected = selected?.partId === p.id;
+              return (
+                <button key={p.id} onClick={() => setSelected(isSelected ? null : { partId: p.id, qty: 1 })}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '10px 14px', background: isSelected ? '#EEF2FF' : '#fff', borderBottom: i < available.length - 1 ? '1px solid #F1F5F9' : 'none', textAlign: 'left', cursor: 'pointer' }}>
+                  <Photo src={p.photoUrl} kind="part" radius={6} style={{ width: 36, height: 36, flex: '0 0 36px' }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                    <div style={{ fontSize: 11.5, color: '#64748B' }}>{p.partNumber}{p.category ? ` · ${p.category}` : ''}</div>
+                  </div>
+                  <div style={{ width: 20, height: 20, borderRadius: 6, border: '1.5px solid ' + (isSelected ? '#1B4FD8' : '#CBD5E1'), background: isSelected ? '#1B4FD8' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {isSelected && <Icons.check size={13} style={{ color: '#fff' }} />}
+                  </div>
+                </button>
+              );
+            })
+          }
+        </div>
+
+        {selected && (
+          <label className="field">
+            <span>Qty installed on this machine</span>
+            <input className="input" type="number" min="1" value={selected.qty}
+              onChange={e => setSelected(s => s ? { ...s, qty: Math.max(1, Number(e.target.value)) } : s)} />
+          </label>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+          <Btn variant="ghost" onClick={onClose} disabled={saving}>Cancel</Btn>
+          <Btn onClick={handleAdd} disabled={!selected || saving}>{saving ? 'Adding…' : 'Add part'}</Btn>
+        </div>
+      </div>
+    </SlideOver>
   );
 }
