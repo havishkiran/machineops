@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { PMTask, PMChecklistItem, FREQ_LABELS, PMFrequency } from '../types';
 import { Btn, Photo, Badge, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV, exportCSV } from '../components/shared';
 
 const FREQUENCIES: PMFrequency[] = ['NONE', 'WEEKLY', 'FORTNIGHTLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'];
 
@@ -471,6 +471,19 @@ export default function PMSchedule() {
   const templateHeaders = ['machine_code','task','section','assignee_email','frequency','next_due_date','notify_days_before'];
   const templateSample = ['TVPM-DIP-DIPM-001','Lubricate bearings','Dipping','tech@tvpm.co.in','MONTHLY','2026-07-01','3'];
 
+  const handleExport = () => {
+    const rows: string[][] = [
+      ['Machine', 'Machine Code', 'Task', 'Section', 'Assignee', 'Frequency', 'Next Due Date', 'Status', 'Notify Days Before'],
+      ...pmTasks.map(p => [
+        p.machine?.name ?? '', p.machine?.code ?? '', p.task, p.section,
+        p.assignee?.name ?? '', FREQ_LABELS[p.frequency] ?? p.frequency,
+        p.nextDueDate ? new Date(p.nextDueDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+        p.state, String(p.notifyDaysBefore),
+      ]),
+    ];
+    exportCSV(rows, `pm-tasks-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div className="content-pad fade-in">
       <PageTitle title="Maintenance" right={
@@ -482,6 +495,7 @@ export default function PMSchedule() {
               <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
             </>
           )}
+          <Btn variant="secondary" size="lg" icon="download" onClick={handleExport}>Export CSV</Btn>
           <div className="seg">
             <button className={view === 'list' ? 'on' : ''} onClick={() => setView('list')}><Icons.list size={16} /> List</button>
             <button className={view === 'calendar' ? 'on' : ''} onClick={() => setView('calendar')}><Icons.calendar size={16} /> Calendar</button>

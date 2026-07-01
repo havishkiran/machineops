@@ -5,7 +5,7 @@ import { Part } from '../types';
 import { WOForm } from './WorkOrders';
 import { Badge, Btn, Photo, Avatar } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV, exportCSV } from '../components/shared';
 
 /* ============ RAISE A BREAKDOWN ============ */
 export function RaiseTicket() {
@@ -279,6 +279,19 @@ export function TicketList() {
   const templateHeaders = ['machine_code', 'category', 'severity', 'type', 'title', 'description'];
   const templateSample = ['TVPM-DIP-DIPM-001', 'Machine', 'HIGH', 'Breakdown', 'Bearing noise on dipping machine', 'Unusual grinding noise heard during operation'];
 
+  const handleExport = () => {
+    const rows: string[][] = [
+      ['Ticket #', 'Machine', 'Category', 'Severity', 'Status', 'Type', 'Title', 'Assigned To', 'Raised At'],
+      ...list.map(t => [
+        t.ticketNum ?? '', t.machine?.name ?? t.category ?? '', t.category ?? '',
+        t.severity, t.status, t.type ?? '', t.title ?? '',
+        t.assignedTo?.name ?? 'Unassigned',
+        new Date(t.raisedAt).toLocaleString('en-IN'),
+      ]),
+    ];
+    exportCSV(rows, `breakdowns-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div className="content-pad fade-in">
       <PageTitle title="Breakdowns" right={
@@ -290,6 +303,7 @@ export function TicketList() {
               <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
             </>
           )}
+          <Btn variant="secondary" size="lg" icon="download" onClick={handleExport}>Export CSV</Btn>
           <Btn size="lg" icon="plus" onClick={() => nav('raise')}>Report breakdown</Btn>
         </div>
       } />

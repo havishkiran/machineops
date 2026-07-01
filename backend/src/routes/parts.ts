@@ -40,62 +40,166 @@ router.delete('/bulk', async (req: Request, res: Response) => {
   res.json({ deleted: count });
 });
 
-// POST /api/parts/import — bulk create
+// POST /api/parts/import — bulk create (supports multi-row per part)
 router.post('/import', async (req: Request, res: Response) => {
   if ((req as any).user?.role !== 'Super Admin') return res.status(403).json({ error: 'Forbidden' });
   const orgId = (req as any).user?.orgId;
   const { rows } = req.body;
   if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ error: 'rows array required' });
 
-  // Pre-fetch all machines for this org so we can resolve codes without N+1 queries
-  const orgMachines = await prisma.machine.findMany({ where: { orgId }, select: { id: true, code: true } });
+  // Pre-fetch all machines + units for this org
+  const orgMachines = await prisma.machine.findMany({
+    where: { orgId },
+    select: { id: true, code: true, name: true, unitId: true },
+  });
+  const orgUnits = await prisma.unit.findMany({ where: { orgId }, select: { id: true, code: true, name: true } });
   const machineByCode = new Map(orgMachines.map(m => [m.code.toUpperCase(), m.id]));
+  const unitByCode = new Map(orgUnits.map(u => [u.code.toUpperCase(), u.id]));
+  const unitByName = new Map(orgUnits.map(u => [u.name.toUpperCase(), u.id]));
+
+  // Resolve a machine from unit_code/unit_name + machine_name/machine_code
+  function resolveMachine(row: any, rowNum: number, errors: string[]): { machineId: string; qty: number } | null {
+    const mCode = row.machine_code?.trim();
+    const mName = row.machine_name?.trim();
+    const mQty = Math.max(1, Number(row.machine_qty) || 1);
+
+    // Try direct machine_code lookup first
+    if (mCode) {
+      const id = machineByCode.get(mCode.toUpperCase());
+      if (id) return { machineId: id, qty: mQty };
+      errors.push(`Row ${rowNum}: machine code "${mCode}" not found`);
+      return null;
+    }
+
+    // Try unit_code/unit_name + machine_name lookup
+    if (mName) {
+      const uRaw = (row.unit_code ?? row.unit_name ?? '').trim().toUpperCase();
+      const unitId = uRaw ? (unitByCode.get(uRaw) ?? unitByName.get(uRaw)) : null;
+      const candidates = unitId
+        ? orgMachines.filter(m => m.unitId === unitId)
+        : orgMachines;
+      const nameUp = mName.toUpperCase();
+      const match = candidates.find(m => m.name.toUpperCase() === nameUp)
+        ?? candidates.find(m => m.name.toUpperCase().includes(nameUp));
+      if (match) return { machineId: match.id, qty: mQty };
+      errors.push(`Row ${rowNum}: machine "${mName}"${unitId ? ` in unit "${uRaw}"` : ''} not found`);
+      return null;
+    }
+
+    return null;
+  }
+
+  // Detect format: multi-row (has machine_name or machine_code columns) vs legacy (machine_codes pipe-separated)
+  const hasMultiRowCols = rows.some((r: any) => r.machine_name?.trim() || r.machine_code?.trim());
+  const hasLegacyCols = rows.some((r: any) => r.machine_codes?.trim());
 
   const created: any[] = [];
   const errors: string[] = [];
 
-  for (const [i, row] of rows.entries()) {
-    const rowNum = i + 2;
-    if (!row.name?.trim()) { errors.push(`Row ${rowNum}: name is required`); continue; }
-    const qty = row.qty ? Math.max(0, Number(row.qty)) : 0;
-    const minQty = row.min_qty ? Math.max(0, Number(row.min_qty)) : 0;
-    const partNumber = row.part_number?.trim() || await generatePartNumber(orgId);
-
-    // Resolve pipe-separated machine codes (format: MCH-001:2|MCH-003 — colon = qty, default 1)
-    const resolvedAssocs: { machineId: string; qty: number }[] = [];
-    if (row.machine_codes) {
-      for (const segment of row.machine_codes.split('|')) {
-        const [rawCode, rawQty] = segment.trim().split(':');
-        const code = rawCode?.trim().toUpperCase();
-        if (!code) continue;
-        const id = machineByCode.get(code);
-        if (id) resolvedAssocs.push({ machineId: id, qty: rawQty ? Math.max(1, Number(rawQty)) || 1 : 1 });
-        else errors.push(`Row ${rowNum}: machine code "${code}" not found — skipped`);
+  if (hasMultiRowCols && !hasLegacyCols) {
+    // Multi-row format: group rows by part name, first row has part details, all rows contribute machines
+    const groups = new Map<string, { first: any; firstRowNum: number; machines: { row: any; rowNum: number }[] }>();
+    for (const [i, row] of rows.entries()) {
+      const rowNum = i + 2;
+      const name = row.name?.trim();
+      if (!name) {
+        // Continuation row for previous part — find last group
+        const lastKey = Array.from(groups.keys()).pop();
+        if (lastKey) {
+          groups.get(lastKey)!.machines.push({ row, rowNum });
+        } else {
+          errors.push(`Row ${rowNum}: name is required`);
+        }
+        continue;
+      }
+      const key = name.toUpperCase();
+      if (groups.has(key)) {
+        groups.get(key)!.machines.push({ row, rowNum });
+      } else {
+        groups.set(key, { first: row, firstRowNum: rowNum, machines: [{ row, rowNum }] });
       }
     }
 
-    try {
-      const part = await prisma.part.create({
-        data: {
-          partNumber, name: row.name.trim(), spec: row.spec?.trim() || null,
-          qty, minQty, status: calcStatus(qty, minQty),
-          cost: row.cost ? Number(row.cost) : 0,
-          category: row.category?.trim() || null,
-          criticality: row.criticality?.trim() || 'Medium',
-          supplier: row.supplier?.trim() || null,
-          vendorName: row.vendor_name?.trim() || null,
-          vendorPhone: row.vendor_phone?.trim() || null,
-          location: row.location?.trim() || null,
-          orgId,
-          machines: resolvedAssocs.length > 0
-            ? { create: resolvedAssocs.map(a => ({ machineId: a.machineId, qty: a.qty })) }
-            : undefined,
-        },
-        include: PART_INCLUDE,
-      });
-      created.push(part);
-    } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+    for (const [, group] of groups) {
+      const row = group.first;
+      const rowNum = group.firstRowNum;
+      const qty = row.qty ? Math.max(0, Number(row.qty)) : 0;
+      const minQty = row.min_qty ? Math.max(0, Number(row.min_qty)) : 0;
+      const partNumber = row.part_number?.trim() || await generatePartNumber(orgId);
+
+      const resolvedAssocs: { machineId: string; qty: number }[] = [];
+      for (const { row: mRow, rowNum: mRowNum } of group.machines) {
+        const assoc = resolveMachine(mRow, mRowNum, errors);
+        if (assoc) resolvedAssocs.push(assoc);
+      }
+
+      try {
+        const part = await prisma.part.create({
+          data: {
+            partNumber, name: row.name.trim(), spec: row.spec?.trim() || null,
+            qty, minQty, status: calcStatus(qty, minQty),
+            cost: row.cost ? Number(row.cost) : 0,
+            category: row.category?.trim() || null,
+            criticality: row.criticality?.trim() || 'Medium',
+            supplier: row.supplier?.trim() || null,
+            vendorName: row.vendor_name?.trim() || null,
+            vendorPhone: row.vendor_phone?.trim() || null,
+            location: row.location?.trim() || null,
+            orgId,
+            machines: resolvedAssocs.length > 0
+              ? { create: resolvedAssocs.map(a => ({ machineId: a.machineId, qty: a.qty })) }
+              : undefined,
+          },
+          include: PART_INCLUDE,
+        });
+        created.push(part);
+      } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+    }
+  } else {
+    // Legacy format: one row per part, machine_codes pipe-separated
+    for (const [i, row] of rows.entries()) {
+      const rowNum = i + 2;
+      if (!row.name?.trim()) { errors.push(`Row ${rowNum}: name is required`); continue; }
+      const qty = row.qty ? Math.max(0, Number(row.qty)) : 0;
+      const minQty = row.min_qty ? Math.max(0, Number(row.min_qty)) : 0;
+      const partNumber = row.part_number?.trim() || await generatePartNumber(orgId);
+
+      const resolvedAssocs: { machineId: string; qty: number }[] = [];
+      if (row.machine_codes) {
+        for (const segment of row.machine_codes.split('|')) {
+          const [rawCode, rawQty] = segment.trim().split(':');
+          const code = rawCode?.trim().toUpperCase();
+          if (!code) continue;
+          const id = machineByCode.get(code);
+          if (id) resolvedAssocs.push({ machineId: id, qty: rawQty ? Math.max(1, Number(rawQty)) || 1 : 1 });
+          else errors.push(`Row ${rowNum}: machine code "${code}" not found — skipped`);
+        }
+      }
+
+      try {
+        const part = await prisma.part.create({
+          data: {
+            partNumber, name: row.name.trim(), spec: row.spec?.trim() || null,
+            qty, minQty, status: calcStatus(qty, minQty),
+            cost: row.cost ? Number(row.cost) : 0,
+            category: row.category?.trim() || null,
+            criticality: row.criticality?.trim() || 'Medium',
+            supplier: row.supplier?.trim() || null,
+            vendorName: row.vendor_name?.trim() || null,
+            vendorPhone: row.vendor_phone?.trim() || null,
+            location: row.location?.trim() || null,
+            orgId,
+            machines: resolvedAssocs.length > 0
+              ? { create: resolvedAssocs.map(a => ({ machineId: a.machineId, qty: a.qty })) }
+              : undefined,
+          },
+          include: PART_INCLUDE,
+        });
+        created.push(part);
+      } catch (e: any) { errors.push(`Row ${rowNum}: ${e.message}`); }
+    }
   }
+
   res.json({ created: created.length, parts: created, errors });
 });
 

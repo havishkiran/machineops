@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { Machine, CustomField } from '../types';
 import { Badge, Btn, Photo, QRBox, EmptyState, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { MachineCard, PageTitle, FilterBar, Drop, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
+import { MachineCard, PageTitle, FilterBar, Drop, BulkBar, ImportResultModal, downloadCSV, parseCSV, exportCSV } from '../components/shared';
 import { api } from '../api';
 
 /* ─── Machine Add / Edit form slide-over ─────────────────────────────────── */
@@ -302,6 +302,17 @@ export function MachineList() {
   const templateHeaders = ['name','unit_code','section','machine_type','status','manufacturer','model','year','last_pm','next_pm','uptime'];
   const templateSample = ['Dipping Machine 5','TVPM','Dipping','Dipping Machine','WORKING','Sussman','DX-300','2023','','','100'];
 
+  const handleExport = () => {
+    const rows: string[][] = [
+      ['Code', 'Name', 'Unit', 'Section', 'Type', 'Status', 'Manufacturer', 'Model', 'Year', 'Last PM', 'Next PM', 'Uptime %'],
+      ...list.map(m => {
+        const unitObj = units.find(u => u.id === m.unitId);
+        return [m.code, m.name, unitObj?.code ?? '', m.section, m.machineType ?? '', m.status, m.manufacturer ?? '', m.model ?? '', m.year ?? '', m.lastPM ?? '', m.nextPM ?? '', String(m.uptime ?? '')];
+      }),
+    ];
+    exportCSV(rows, `machines-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
+
   return (
     <div className="content-pad fade-in">
       <PageTitle
@@ -315,6 +326,7 @@ export function MachineList() {
                 <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
               </>
             )}
+            <Btn variant="secondary" size="lg" icon="download" onClick={handleExport}>Export CSV</Btn>
             <Btn size="lg" icon="plus" onClick={() => setShowForm(true)}>Add machine</Btn>
           </div>
         }

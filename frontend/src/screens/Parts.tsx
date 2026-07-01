@@ -4,7 +4,7 @@ import { useStore } from '../store';
 import { Part, CustomField, fmtINR } from '../types';
 import { Badge, Btn, Photo, SlideOver } from '../components/ui';
 import { Icons } from '../components/icons';
-import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV } from '../components/shared';
+import { PageTitle, BulkBar, ImportResultModal, downloadCSV, parseCSV, exportCSV } from '../components/shared';
 import { api } from '../api';
 
 export default function PartsInventory() {
@@ -80,8 +80,22 @@ export default function PartsInventory() {
     finally { setImporting(false); e.target.value = ''; }
   };
 
-  const templateHeaders = ['part_number','name','spec','qty','min_qty','cost','category','criticality','supplier','vendor_name','vendor_phone','location','machine_codes'];
-  const templateSample = ['','Bearing 6205','Deep groove ball bearing','10','2','350','Bearing','Medium','SKF India','SKF Store Chennai','+91 98765 43210','Unit A - Shelf 2','MCH-001:2|MCH-003:1'];
+  const templateHeaders = ['name','spec','qty','min_qty','cost','category','criticality','supplier','vendor_name','vendor_phone','location','unit_code','machine_name','machine_qty'];
+  const templateSample = ['Bearing 6205','Deep groove ball bearing','10','2','350','Bearing','Medium','SKF India','SKF Store Chennai','+91 98765 43210','Unit A - Shelf 2','TVPM','Dipping Machine 4','2'];
+  const templateSample2 = ['Bearing 6205','','','','','','','','','','','CTPI','Grinder 1','1'];
+
+  const handleExport = () => {
+    const rows: string[][] = [
+      ['Part No.', 'Name', 'Spec', 'Qty', 'Min Qty', 'Cost', 'Category', 'Criticality', 'Status', 'Supplier', 'Vendor Name', 'Vendor Phone', 'Location', 'Machines'],
+      ...list.map(p => [
+        p.partNumber ?? '', p.name, p.spec ?? '', String(p.qty), String(p.minQty), String(p.cost ?? 0),
+        p.category ?? '', p.criticality, p.status,
+        p.supplier ?? '', p.vendorName ?? '', p.vendorPhone ?? '', p.location ?? '',
+        (p.machines ?? []).map(m => m.machine?.name ?? '').filter(Boolean).join(' | '),
+      ]),
+    ];
+    exportCSV(rows, `spare-parts-${new Date().toISOString().slice(0, 10)}.csv`);
+  };
 
   return (
     <div className="content-pad fade-in">
@@ -90,10 +104,11 @@ export default function PartsInventory() {
           {isAdmin && (
             <>
               <input ref={importRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleImport} />
-              <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('parts_template.csv', templateHeaders, templateSample)}>Template</Btn>
+              <Btn variant="secondary" size="lg" icon="download" onClick={() => downloadCSV('parts_template.csv', templateHeaders, templateSample, templateSample2)}>Template</Btn>
               <Btn variant="secondary" size="lg" icon="upload" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing…' : 'Import CSV'}</Btn>
             </>
           )}
+          <Btn variant="secondary" size="lg" icon="download" onClick={handleExport}>Export CSV</Btn>
           <Btn size="lg" icon="plus" onClick={() => { setEditPart(null); setShowForm(true); }}>Add part</Btn>
         </div>
       } />

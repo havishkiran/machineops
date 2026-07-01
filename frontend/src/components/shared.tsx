@@ -82,8 +82,18 @@ export function Drop({ label }: { label: string }) {
 }
 
 /* ─── CSV utilities ─────────────────────────────────────────────────────── */
-export function downloadCSV(filename: string, headers: string[], sampleRow: string[]) {
-  const rows = [headers.join(','), sampleRow.map(v => v.includes(',') ? `"${v}"` : v).join(',')];
+export function exportCSV(rows: string[][], filename: string) {
+  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadCSV(filename: string, headers: string[], sampleRow: string[], ...extraRows: string[][]) {
+  const fmtRow = (r: string[]) => r.map(v => v.includes(',') ? `"${v}"` : v).join(',');
+  const rows = [headers.join(','), fmtRow(sampleRow), ...extraRows.map(fmtRow)];
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

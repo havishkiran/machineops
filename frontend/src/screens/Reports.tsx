@@ -3,7 +3,7 @@ import { useStore } from '../store';
 import { fmtINR } from '../types';
 import { Btn, Photo } from '../components/ui';
 import { Icons } from '../components/icons';
-import { SectionHead, PageTitle } from '../components/shared';
+import { SectionHead, PageTitle, exportCSV } from '../components/shared';
 
 function Donut({ segments, size = 150, thickness = 22, center }: { segments: { label: string; value: number; color: string }[]; size?: number; thickness?: number; center?: React.ReactNode }) {
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
@@ -70,15 +70,6 @@ function rangeCutoff(range: string): Date {
   // quarter: beginning of current quarter
   const q = Math.floor(now.getMonth() / 3);
   return new Date(now.getFullYear(), q * 3, 1);
-}
-
-function exportCSV(rows: string[][], filename: string) {
-  const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
 }
 
 export default function Reports() {
